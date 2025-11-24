@@ -1,0 +1,68 @@
+name: aeye
+description: An offline accessibility app for the visually impaired
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # UI
+  cupertino_icons: ^1.0.2
+  
+  # Camera & Image Processing
+  camera: ^0.11.2
+  image: ^4.1.3
+  
+  # ML & Object Detection
+  tflite_flutter: ^0.11.0
+  
+  # OCR
+  google_mlkit_text_recognition: ^0.15.0
+  
+  # Text-to-Speech
+  flutter_tts: ^4.2.3
+  
+  # Speech-to-Text
+  speech_to_text: ^7.3.0
+  
+  # HTTP for future features
+  http: ^1.1.0
+  
+  # Permissions
+  permission_handler: ^12.0.1
+  
+  # Local Storage
+  shared_preferences: ^2.2.2
+  path_provider: ^2.1.1
+  
+  # State Management
+  provider: ^6.1.1
+ 
+  
+  # Utilities
+  vibration: ^3.1.4
+  wakelock_plus: ^1.1.4
+  battery_plus: ^7.0.0
+  url_launcher: ^6.3.0
+  volume_controller: ^3.4.0
+  logger: ^2.0.2+1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  mockito: ^5.4.4
+  build_runner: ^2.4.8
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/models/
+    - assets/images/
