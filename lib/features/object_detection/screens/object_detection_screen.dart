@@ -110,28 +110,47 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
         _startListening();
       }
 
-      _tts.addOnStartListener(() => _voice.cancelListening());
-      _tts.addOnCompleteListener(() {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted && !_isListening) _startListening();
-        });
-      });
+      // Pause listening when TTS starts speaking
+      _tts.addOnStartListener(_onTtsStart);
+      // Resume listening when TTS finishes
+      _tts.addOnCompleteListener(_onTtsComplete);
     } catch (e) {
       debugPrint('Voice init error: $e');
     }
   }
 
+  void _onTtsStart() {
+    if (mounted) {
+      setState(() => _isListening = false);
+    }
+    _voice.cancelListening();
+  }
+
+  void _onTtsComplete() {
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted && !_isListening) {
+        _startListening();
+      }
+    });
+  }
+
   Future<void> _startListening() async {
-    if (_isListening) return;
-    _isListening = true;
+    if (_isListening || !mounted) return;
+    
+    setState(() => _isListening = true);
 
     await _voice.startListening(
       onResult: (text) async {
-        _isListening = false;
+        if (!mounted) return;
+        setState(() => _isListening = false);
         await _handleVoiceCommand(text);
-        if (mounted) _startListening();
+        // Restart listening after command processed
+        if (mounted && !_isListening) {
+          _startListening();
+        }
       },
       onPartialResult: (_) {},
+      continuous: false, // We handle restart ourselves
     );
   }
 
@@ -233,15 +252,12 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
   }
 
   Future<void> _announceResults(List<DetectionResult> results) async {
+    // Reset detection active - user must initiate next scan
+    _detectionActive = false;
+    
     if (results.isEmpty) {
-      setState(() => _statusMessage = 'No objects detected');
-      await _tts.speak('No objects detected. Scanning again.');
-      
-      // Auto-restart after no detection
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (mounted && _isInitialized && !_isProcessing && _detectionActive) {
-        await _captureAndDetect();
-      }
+      setState(() => _statusMessage = 'No objects detected. Say scan to try again.');
+      await _tts.speak('No objects detected. Say scan to try again.');
       return;
     }
 
@@ -249,33 +265,21 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
     final confident = results.where((r) => r.confidence > 0.5).toList();
 
     if (confident.isEmpty) {
-      setState(() => _statusMessage = 'Objects unclear');
-      await _tts.speak('Objects unclear. Scanning again.');
-      
-      // Auto-restart after unclear detection
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (mounted && _isInitialized && !_isProcessing && _detectionActive) {
-        await _captureAndDetect();
-      }
+      setState(() => _statusMessage = 'Objects unclear. Say scan to try again.');
+      await _tts.speak('Objects unclear. Say scan to try again.');
       return;
     }
 
     // Build announcement
     final count = confident.length;
     final objectWord = count == 1 ? 'object' : 'objects';
-    setState(() => _statusMessage = '$count $objectWord detected');
+    setState(() => _statusMessage = '$count $objectWord detected. Say scan for more.');
 
     // Get unique labels
     final labels = confident.map((r) => r.label).toSet().take(5).toList();
     final labelText = labels.join(', ');
 
-    await _tts.speak('Found $count $objectWord: $labelText.');
-
-    // Auto-restart detection after announcement
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (mounted && _isInitialized && !_isProcessing && _detectionActive) {
-      await _captureAndDetect();
-    }
+    await _tts.speak('Found $count $objectWord: $labelText. Say scan to detect again.');
   }
 
   Future<void> _announceCurrentResults() async {
@@ -296,8 +300,10 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
 
   @override
   void dispose() {
-    _camera?.dispose();
+    _tts.removeOnStartListener(_onTtsStart);
+    _tts.removeOnCompleteListener(_onTtsComplete);
     _voice.stopListening();
+    _camera?.dispose();
     AudioFeedback.dispose();
     super.dispose();
   }
@@ -320,11 +326,11 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
       ),
       body: Stack(
         children: [
-          // Camera preview - full screen, tap to start
+          // Camera preview - full screen, tap to scan
           if (_isInitialized && _camera != null)
             GestureDetector(
               onTap: () async {
-                if (!_detectionActive) {
+                if (!_isProcessing) {
                   _detectionActive = true;
                   await _captureAndDetect();
                 }
@@ -378,7 +384,7 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
                   children: [
                     // Voice commands hint
                     Text(
-                      'Tap screen or say "start" to begin • "stop" to pause',
+                      'Tap screen or say "scan" to detect objects',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.7),
                         fontSize: 11,
