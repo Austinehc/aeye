@@ -197,19 +197,13 @@ class ObjectDetectorService {
       throw Exception('Interpreter not initialized');
     }
 
-    // ✅ REMOVED: Inference throttling - frame skip in screen handles this better
-    // ✅ REMOVED: Frame caching - causes memory leaks and adds overhead
-
     try {
-      // ✅ OPTIMIZED: Use pre-allocated tensors for faster inference
       final input = _preprocessImageOptimized(image);
       final output = _preAllocatedOutput ?? 
                     _createZeroedOutputOfType(_outputShape!, _outputQuantized);
 
-      // Run inference with optimized tensors
       _interpreter!.run(input, output);
 
-      // Parse results with cached dimensions
       final results = _parseYOLOv8Results(output, image.width, image.height, _targetWidth, _targetHeight);
       
       return results;
@@ -219,8 +213,76 @@ class ObjectDetectorService {
       return [];
     }
   }
-  
-  // ✅ REMOVED: Frame hashing methods - caused overhead without benefit
+
+  /// ✅ NEW: Detect from raw RGB bytes (for camera stream - avoids disk I/O)
+  Future<List<DetectionResult>> detectFromRgbBytes(
+    Uint8List rgbBytes,
+    int width,
+    int height,
+  ) async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    if (_interpreter == null) {
+      return [];
+    }
+
+    try {
+      // Resize and normalize RGB bytes directly to model input
+      final input = _preprocessRgbBytes(rgbBytes, width, height);
+      final output = _preAllocatedOutput ?? 
+                    _createZeroedOutputOfType(_outputShape!, _outputQuantized);
+
+      _interpreter!.run(input, output);
+
+      return _parseYOLOv8Results(output, width, height, _targetWidth, _targetHeight);
+    } catch (e) {
+      print('❌ Error in RGB detection: $e');
+      return [];
+    }
+  }
+
+  /// Preprocess RGB bytes directly (faster than going through img.Image)
+  List<dynamic> _preprocessRgbBytes(Uint8List rgbBytes, int srcWidth, int srcHeight) {
+    final input = _preAllocatedInput ?? _createNewInputTensor();
+    
+    // Simple nearest-neighbor resize for speed
+    final scaleX = srcWidth / _targetWidth;
+    final scaleY = srcHeight / _targetHeight;
+    
+    if (_isInputCHW) {
+      for (int y = 0; y < _targetHeight; y++) {
+        final srcY = (y * scaleY).toInt().clamp(0, srcHeight - 1);
+        for (int x = 0; x < _targetWidth; x++) {
+          final srcX = (x * scaleX).toInt().clamp(0, srcWidth - 1);
+          final srcIdx = (srcY * srcWidth + srcX) * 3;
+          
+          if (srcIdx + 2 < rgbBytes.length) {
+            input[0][0][y][x] = rgbBytes[srcIdx] / 255.0;
+            input[0][1][y][x] = rgbBytes[srcIdx + 1] / 255.0;
+            input[0][2][y][x] = rgbBytes[srcIdx + 2] / 255.0;
+          }
+        }
+      }
+    } else {
+      for (int y = 0; y < _targetHeight; y++) {
+        final srcY = (y * scaleY).toInt().clamp(0, srcHeight - 1);
+        for (int x = 0; x < _targetWidth; x++) {
+          final srcX = (x * scaleX).toInt().clamp(0, srcWidth - 1);
+          final srcIdx = (srcY * srcWidth + srcX) * 3;
+          
+          if (srcIdx + 2 < rgbBytes.length) {
+            input[0][y][x][0] = rgbBytes[srcIdx] / 255.0;
+            input[0][y][x][1] = rgbBytes[srcIdx + 1] / 255.0;
+            input[0][y][x][2] = rgbBytes[srcIdx + 2] / 255.0;
+          }
+        }
+      }
+    }
+    
+    return input;
+  }
   
   // ✅ OPTIMIZED: Pre-allocate tensors with retry logic
   void _preAllocateInferenceTensors() {

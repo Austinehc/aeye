@@ -41,10 +41,3 @@ class AppConstants {
     'exit': 'exit',
   };
 }
-
-class VoiceCommands {
-  static const String detectObjects = 'detect objects';
-  static const String readText = 'read text';
-  static const String help = 'help';
-  static const String exit = 'exit';
-}

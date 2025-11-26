@@ -145,12 +145,11 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   }
 
   Future<void> _initialize() async {
-    // Welcome message
-    await _tts.speak('Welcome to Aeye.');
+    // ✅ REMOVED: No voice feedback on startup
     
-    // Wait for animation and minimum time
+    // Wait for animation and permissions
     await Future.wait([
-      Future.delayed(const Duration(seconds: 3)),
+      Future.delayed(const Duration(seconds: 2)),
       PermissionsHandler.requestAllPermissions(),
     ]);
     
