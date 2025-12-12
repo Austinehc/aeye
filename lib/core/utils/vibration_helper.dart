@@ -64,9 +64,4 @@ class VibrationHelper {
   static Future<void> alert() async {
     await vibratePattern([0, 100, 100, 100, 100, 100]);
   }
-
-  // Emergency pattern
-  static Future<void> emergency() async {
-    await vibratePattern([0, 200, 100, 200, 100, 200]);
-  }
 }

@@ -93,28 +93,6 @@ class SettingsService {
     await saveSettings(_settings.copyWith(reducedGPSAccuracy: enabled));
   }
 
-  Future<void> addEmergencyContact(EmergencyContact contact) async {
-    final contacts = List<EmergencyContact>.from(_settings.emergencyContacts);
-    contacts.add(contact);
-    await saveSettings(_settings.copyWith(emergencyContacts: contacts));
-  }
-
-  Future<void> removeEmergencyContact(int index) async {
-    final contacts = List<EmergencyContact>.from(_settings.emergencyContacts);
-    if (index >= 0 && index < contacts.length) {
-      contacts.removeAt(index);
-      await saveSettings(_settings.copyWith(emergencyContacts: contacts));
-    }
-  }
-
-  Future<void> updateEmergencyContact(int index, EmergencyContact contact) async {
-    final contacts = List<EmergencyContact>.from(_settings.emergencyContacts);
-    if (index >= 0 && index < contacts.length) {
-      contacts[index] = contact;
-      await saveSettings(_settings.copyWith(emergencyContacts: contacts));
-    }
-  }
-
   Future<void> updateHeadsetButtonEnabled(bool enabled) async {
     await saveSettings(_settings.copyWith(headsetButtonEnabled: enabled));
   }

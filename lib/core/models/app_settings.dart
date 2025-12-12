@@ -13,9 +13,6 @@ class AppSettings {
   final bool autoStopCamera;
   final bool reducedGPSAccuracy;
   
-  // Emergency Contacts
-  final List<EmergencyContact> emergencyContacts;
-  
   // Map Settings
   final bool offlineMapsEnabled;
   final int maxCachedTiles;
@@ -32,7 +29,6 @@ class AppSettings {
     this.batterySaverMode = false,
     this.autoStopCamera = true,
     this.reducedGPSAccuracy = false,
-    this.emergencyContacts = const [],
     this.offlineMapsEnabled = true,
     this.maxCachedTiles = 500,
     this.headsetButtonEnabled = true,
@@ -47,7 +43,6 @@ class AppSettings {
     bool? batterySaverMode,
     bool? autoStopCamera,
     bool? reducedGPSAccuracy,
-    List<EmergencyContact>? emergencyContacts,
     bool? offlineMapsEnabled,
     int? maxCachedTiles,
     bool? headsetButtonEnabled,
@@ -61,7 +56,6 @@ class AppSettings {
       batterySaverMode: batterySaverMode ?? this.batterySaverMode,
       autoStopCamera: autoStopCamera ?? this.autoStopCamera,
       reducedGPSAccuracy: reducedGPSAccuracy ?? this.reducedGPSAccuracy,
-      emergencyContacts: emergencyContacts ?? this.emergencyContacts,
       offlineMapsEnabled: offlineMapsEnabled ?? this.offlineMapsEnabled,
       maxCachedTiles: maxCachedTiles ?? this.maxCachedTiles,
       headsetButtonEnabled: headsetButtonEnabled ?? this.headsetButtonEnabled,
@@ -78,7 +72,6 @@ class AppSettings {
       'batterySaverMode': batterySaverMode,
       'autoStopCamera': autoStopCamera,
       'reducedGPSAccuracy': reducedGPSAccuracy,
-      'emergencyContacts': emergencyContacts.map((e) => e.toJson()).toList(),
       'offlineMapsEnabled': offlineMapsEnabled,
       'maxCachedTiles': maxCachedTiles,
       'headsetButtonEnabled': headsetButtonEnabled,
@@ -95,41 +88,9 @@ class AppSettings {
       batterySaverMode: json['batterySaverMode'] ?? false,
       autoStopCamera: json['autoStopCamera'] ?? true,
       reducedGPSAccuracy: json['reducedGPSAccuracy'] ?? false,
-      emergencyContacts: (json['emergencyContacts'] as List<dynamic>?)
-              ?.map((e) => EmergencyContact.fromJson(e))
-              .toList() ??
-          [],
       offlineMapsEnabled: json['offlineMapsEnabled'] ?? true,
       maxCachedTiles: json['maxCachedTiles'] ?? 500,
       headsetButtonEnabled: json['headsetButtonEnabled'] ?? true,
-    );
-  }
-}
-
-class EmergencyContact {
-  final String name;
-  final String phoneNumber;
-  final bool isPrimary;
-
-  const EmergencyContact({
-    required this.name,
-    required this.phoneNumber,
-    this.isPrimary = false,
-  });
-
-  Map<String, dynamic> toJson() {
-    return {
-      'name': name,
-      'phoneNumber': phoneNumber,
-      'isPrimary': isPrimary,
-    };
-  }
-
-  factory EmergencyContact.fromJson(Map<String, dynamic> json) {
-    return EmergencyContact(
-      name: json['name'] ?? '',
-      phoneNumber: json['phoneNumber'] ?? '',
-      isPrimary: json['isPrimary'] ?? false,
     );
   }
 }

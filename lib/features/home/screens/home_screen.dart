@@ -5,9 +5,7 @@ import '../../../core/utils/vibration_helper.dart';
 import '../../object_detection/screens/object_detection_screen.dart';
 import '../../ocr/screens/ocr_screen.dart';
 import '../../voice/screens/voice_control_screen.dart';
-
 import '../../settings/screens/settings_screen.dart';
-import '../../emergency/screens/emergency_screen.dart';
 import '../../voice/services/voice_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -43,12 +41,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       description: 'Adjust app preferences',
       icon: Icons.settings,
       route: '/settings',
-    ),
-    MenuItem(
-      title: 'Emergency',
-      description: 'SOS and emergency contacts',
-      icon: Icons.emergency,
-      route: '/emergency',
     ),
   ];
 
@@ -95,7 +87,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await Future.delayed(const Duration(milliseconds: 500));
     await _tts.speak(
       'Home screen. ${_menuItems.length} options available. '
-      'Say: detect objects, read text, settings, emergency, help, or exit.'
+      'Say: detect objects, read text, settings, help, or exit.'
     );
   }
 
@@ -239,7 +231,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       case 'help':
         print('✅ Executing: help');
-        await _tts.speak('Say detect objects, read text, voice control, settings, or emergency.');
+        await _tts.speak('Say detect objects, read text, voice control, or settings.');
         return;
       case 'exit':
         print('✅ Executing: exit');
@@ -261,14 +253,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _tts.speak('Opening settings');
       if (mounted) {
         await Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-        _restartVoiceListening();
-      }
-      return;
-    }
-    if (lower.contains('emergency') || lower.contains('s o s') || lower.contains('sos')) {
-      await _tts.speak('Opening emergency');
-      if (mounted) {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const EmergencyScreen()));
         _restartVoiceListening();
       }
       return;
@@ -305,13 +289,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const SettingsScreen()),
-        );
-        _restartVoiceListening();
-        break;
-      case '/emergency':
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const EmergencyScreen()),
         );
         _restartVoiceListening();
         break;
@@ -359,8 +336,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onPressed: () async {
               await _tts.speak(
                 'Aeye help. This is the home screen. '
-                'You have 4 options: Object Detection, Text Reader, Settings, and Emergency. '
-                'Say a command like detect objects, read text, settings, or emergency.'
+                'You have 3 options: Object Detection, Text Reader, and Settings. '
+                'Say a command like detect objects, read text, or settings.'
               );
             },
           ),
