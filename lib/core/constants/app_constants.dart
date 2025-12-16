@@ -32,12 +32,18 @@ class AppConstants {
   static const List<int> errorVibration = [0, 500];
   static const List<int> alertVibration = [0, 100, 100, 100, 100, 100];
   
-  // Voice Commands
+  // Voice Commands - used by home screen for navigation
   static const Map<String, String> voiceCommandsMap = {
     'detect objects': 'object_detection',
+    'object detection': 'object_detection',
+    'detect': 'object_detection',
+    'objects': 'object_detection',
     'read text': 'ocr',
     'scan text': 'ocr',
+    'text reader': 'ocr',
+    'ocr': 'ocr',
     'help': 'help',
     'exit': 'exit',
+    'back': 'exit',
   };
 }

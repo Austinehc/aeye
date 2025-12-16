@@ -172,9 +172,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           
           print('🎤 Voice command received: $text');
           await _handleVoiceResult(text);
-          
-          // VoiceService will auto-restart in continuous mode
-          // No manual restart needed
         },
         onPartialResult: (text) {
           if (mounted) {
@@ -183,6 +180,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             });
           }
         },
+        continuous: true, // VoiceService handles auto-restart
       );
     } catch (e) {
       print('❌ Error starting voice listening: $e');
@@ -257,6 +255,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       return;
     }
+    
+    // Unrecognized command - provide feedback
+    print('⚠️ Unrecognized command: "$recognizedText"');
+    await _tts.speak('Command not recognized. Say help for available commands.');
   }
 
   void _navigateToScreen(int index) async {

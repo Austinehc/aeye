@@ -118,27 +118,30 @@ class _OCRScreenState extends State<OCRScreen> {
   }
 
   Future<void> _startListening() async {
-    if (_isListening) return;
+    if (_isListening || !mounted) return;
+    
     setState(() {
       _isListening = true;
       _recognizedText = '';
     });
+    
     await _voiceService.startListening(
       onResult: (text) async {
+        if (!mounted) return;
         setState(() {
           _isListening = false;
           _recognizedText = text;
         });
         await _handleVoiceResult(text);
-        if (mounted) {
-          _startListening();
-        }
       },
       onPartialResult: (text) {
-        setState(() {
-          _recognizedText = text;
-        });
+        if (mounted) {
+          setState(() {
+            _recognizedText = text;
+          });
+        }
       },
+      continuous: true, // VoiceService handles auto-restart
     );
   }
 

@@ -144,13 +144,9 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
         if (!mounted) return;
         setState(() => _isListening = false);
         await _handleVoiceCommand(text);
-        // Restart listening after command processed
-        if (mounted && !_isListening) {
-          _startListening();
-        }
       },
       onPartialResult: (_) {},
-      continuous: false, // We handle restart ourselves
+      continuous: true, // VoiceService handles auto-restart
     );
   }
 
