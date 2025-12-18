@@ -177,111 +177,146 @@ class _LoadingScreenState extends State<LoadingScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // App Logo
-            ScaleTransition(
-              scale: _scaleAnimation,
-              child: FadeTransition(
-                opacity: _fadeAnimation,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: Image.asset(
-                    'assets/images/app_icon.png',
-                    width: 150,
-                    height: 150,
-                    errorBuilder: (context, error, stackTrace) {
-                      // Fallback if image not found
-                      return Container(
-                        width: 150,
-                        height: 150,
-                        decoration: BoxDecoration(
-                          color: AppTheme.surfaceColor,
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.primaryColor.withValues(alpha: 0.5),
-                              blurRadius: 20,
-                              spreadRadius: 2,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AppTheme.surfaceColor,
+              AppTheme.backgroundColor,
+            ],
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // App Logo with glow effect
+              ScaleTransition(
+                scale: _scaleAnimation,
+                child: FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(32),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.4),
+                          blurRadius: 40,
+                          spreadRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(32),
+                      child: Image.asset(
+                        'assets/images/app_icon.png',
+                        width: 140,
+                        height: 140,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: 140,
+                            height: 140,
+                            decoration: BoxDecoration(
+                              gradient: AppTheme.primaryGradient,
+                              borderRadius: BorderRadius.circular(32),
                             ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.visibility,
-                          size: 80,
-                          color: AppTheme.accentColor,
-                        ),
-                      );
-                    },
+                            child: const Icon(
+                              Icons.visibility_rounded,
+                              size: 70,
+                              color: Colors.white,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
 
-            const SizedBox(height: 40),
+              const SizedBox(height: 32),
 
-            // App Name
-            FadeTransition(
-              opacity: _fadeAnimation,
-              child: Text(
-                'AEye',
-                style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 2,
-                      color: Colors.white,
-                    ),
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            FadeTransition(
-              opacity: _fadeAnimation,
-              child: Text(
-                'Your Vision, Enhanced',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.white70,
-                      letterSpacing: 1,
-                    ),
-              ),
-            ),
-
-            const SizedBox(height: 60),
-
-            // Loading indicator
-            FadeTransition(
-              opacity: _fadeAnimation,
-              child: Column(
-                children: [
-                  if (!_hasError)
-                    const SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accentColor),
-                        strokeWidth: 3,
+              // App Name
+              FadeTransition(
+                opacity: _fadeAnimation,
+                child: Text(
+                  'AEye',
+                  style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 3,
                       ),
-                    )
-                  else
-                    const Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.orange,
-                      size: 36,
-                    ),
-                  const SizedBox(height: 16),
-                  Text(
-                    _loadingStatus,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: _hasError ? Colors.orange : Colors.white60,
-                        ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
+
+              const SizedBox(height: 8),
+
+              FadeTransition(
+                opacity: _fadeAnimation,
+                child: Text(
+                  'Your Vision, Enhanced',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: AppTheme.textSecondary,
+                        letterSpacing: 1,
+                      ),
+                ),
+              ),
+
+              const SizedBox(height: 60),
+
+              // Loading indicator
+              FadeTransition(
+                opacity: _fadeAnimation,
+                child: Column(
+                  children: [
+                    if (!_hasError)
+                      Container(
+                        width: 48,
+                        height: 48,
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surfaceColor,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accentColor),
+                          strokeWidth: 3,
+                        ),
+                      )
+                    else
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: AppTheme.warningColor.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Icon(
+                          Icons.warning_amber_rounded,
+                          color: AppTheme.warningColor,
+                          size: 28,
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surfaceColor.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _loadingStatus,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: _hasError ? AppTheme.warningColor : AppTheme.textSecondary,
+                            ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

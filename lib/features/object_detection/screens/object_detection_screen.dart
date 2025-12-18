@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:camera/camera.dart';
 import 'package:image/image.dart' as img;
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/tts_service.dart';
-import '../../../core/utils/audio_feedback.dart';
 import '../services/object_detector_service.dart';
 import '../models/detection_result.dart';
 import '../../voice/services/voice_service.dart';
@@ -17,7 +17,8 @@ class ObjectDetectionScreen extends StatefulWidget {
   State<ObjectDetectionScreen> createState() => _ObjectDetectionScreenState();
 }
 
-class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
+class _ObjectDetectionScreenState extends State<ObjectDetectionScreen>
+    with WidgetsBindingObserver {
   final _tts = TTSService();
   final _detector = ObjectDetectorService();
   final _voice = VoiceService();
@@ -26,16 +27,40 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
   bool _isInitialized = false;
   bool _isProcessing = false;
   List<DetectionResult> _results = [];
-  String _statusMessage = 'Initializing camera...';
+  String _statusMessage = 'Initializing...';
   int? _imageWidth;
   int? _imageHeight;
   bool _isListening = false;
+  String _recognizedText = '';
 
   @override
   void initState() {
     super.initState();
-    AudioFeedback.initialize();
+    WidgetsBinding.instance.addObserver(this);
     _initialize();
+    _tts.addOnStartListener(_onTtsStart);
+    _tts.addOnCompleteListener(_onTtsComplete);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      _restartVoiceListening();
+    } else if (state == AppLifecycleState.paused) {
+      _voice.stopListening();
+      if (mounted) setState(() => _isListening = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _tts.removeOnStartListener(_onTtsStart);
+    _tts.removeOnCompleteListener(_onTtsComplete);
+    _voice.stopListening();
+    _camera?.dispose();
+    super.dispose();
   }
 
   Future<void> _initialize() async {
@@ -49,7 +74,7 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
         setState(() => _statusMessage = 'No camera available');
-        await _tts.speak('No camera found on this device');
+        await _tts.speak('No camera found');
         return;
       }
 
@@ -58,22 +83,19 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
         ResolutionPreset.medium,
         enableAudio: false,
       );
-
       await _camera!.initialize();
       await _camera!.setFocusMode(FocusMode.auto);
-      await _camera!.setExposureMode(ExposureMode.auto);
 
       if (mounted) {
         setState(() {
           _isInitialized = true;
-          _statusMessage = 'Ready. Say "scan" to detect objects.';
+          _statusMessage = 'Ready to scan';
         });
-        await _tts.speak('Object detection ready. Say scan to detect, or back to exit.');
+        await _tts.speak('Object detection ready. Say scan or tap screen.');
       }
     } catch (e) {
-      debugPrint('Camera init error: $e');
       setState(() => _statusMessage = 'Camera error');
-      await _tts.speak('Failed to initialize camera');
+      await _tts.speak('Camera failed to initialize');
     }
   }
 
@@ -81,78 +103,85 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
     try {
       await _detector.initialize();
     } catch (e) {
-      debugPrint('Detector init error: $e');
-      setState(() => _statusMessage = 'Detection model failed to load');
-      await _tts.speak('Object detection model failed to load. Please restart the app.');
+      setState(() => _statusMessage = 'Model failed');
+      await _tts.speak('Detection model failed. Please restart.');
     }
   }
 
   Future<void> _initVoice() async {
     try {
       final status = await Permission.microphone.request();
-      if (status.isDenied || status.isPermanentlyDenied) {
-        await _tts.speak('Microphone permission denied. Voice commands unavailable.');
-        return;
-      }
-
-      final ok = await _voice.initialize();
-      if (ok) _startListening();
-
-      _tts.addOnStartListener(_onTtsStart);
-      _tts.addOnCompleteListener(_onTtsComplete);
-    } catch (e) {
-      debugPrint('Voice init error: $e');
-    }
+      if (status.isDenied) return;
+      await _voice.initialize();
+      // Listening starts after TTS completes via _onTtsComplete
+    } catch (_) {}
   }
 
   void _onTtsStart() {
-    if (mounted) setState(() => _isListening = false);
     _voice.cancelListening();
+    if (mounted) setState(() => _isListening = false);
   }
 
   void _onTtsComplete() {
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted && !_isListening) _startListening();
-    });
+    if (mounted && _voice.isInitialized) {
+      _startListening();
+    }
+  }
+
+  Future<void> _restartVoiceListening() async {
+    if (!mounted) return;
+    await _voice.stopListening();
+    setState(() => _isListening = false);
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (mounted && !_tts.isSpeaking && _voice.isInitialized) {
+      _startListening();
+    }
   }
 
   Future<void> _startListening() async {
-    if (_isListening || !mounted) return;
-    setState(() => _isListening = true);
+    if (!mounted) return;
+    if (!_voice.isInitialized && !await _voice.initialize()) return;
 
-    await _voice.startListening(
-      onResult: (text) async {
-        if (!mounted) return;
-        setState(() => _isListening = false);
-        await _handleVoiceCommand(text);
-      },
-      onPartialResult: (_) {},
-      continuous: true,
-    );
+    setState(() => _recognizedText = '');
+
+    try {
+      await _voice.startListening(
+        onResult: (text) async {
+          if (!mounted) return;
+          setState(() => _recognizedText = text);
+          await _handleVoiceCommand(text);
+        },
+        onPartialResult: (text) {
+          if (mounted) setState(() => _recognizedText = text);
+        },
+        onListeningStateChanged: (isListening) {
+          if (mounted) setState(() => _isListening = isListening);
+        },
+        continuous: true,
+      );
+    } catch (e) {
+      if (mounted) setState(() => _isListening = false);
+    }
   }
 
   Future<void> _handleVoiceCommand(String text) async {
     final cmd = text.toLowerCase().trim();
 
-    // Object Detection commands: scan, back/exit
     if (cmd.contains('scan')) {
-      AudioFeedback.success();
       await _captureAndDetect();
     } else if (cmd.contains('back') || cmd.contains('exit')) {
-      AudioFeedback.success();
       await _tts.speak('Going back');
       if (mounted) Navigator.pop(context);
+    } else if (cmd.contains('help')) {
+      await _tts.speak('Say scan to detect objects, or back to return.');
     } else {
-      AudioFeedback.error();
       await _tts.speak('Unknown command. Say scan or back.');
     }
   }
 
+
   Future<void> _captureAndDetect() async {
-    if (!_isInitialized || _isProcessing || _camera == null) {
-      await _tts.speak('Camera not ready. Please wait.');
-      return;
-    }
+    if (!_isInitialized || _isProcessing || _camera == null) return;
 
     setState(() {
       _isProcessing = true;
@@ -167,17 +196,13 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
       final bytes = await File(xFile.path).readAsBytes();
       final decoded = img.decodeImage(bytes);
 
-      if (decoded == null) {
-        throw Exception('Failed to decode image');
-      }
+      if (decoded == null) throw Exception('Failed to decode');
 
       _imageWidth = decoded.width;
       _imageHeight = decoded.height;
 
-      final resized = img.copyResize(decoded, width: 320, height: 320);
-      final results = await _detector.detectObjects(resized);
+      final results = await _detector.detectObjects(decoded);
 
-      // Clean up temp file
       File(xFile.path).delete().catchError((_) => File(xFile.path));
 
       setState(() {
@@ -190,157 +215,267 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
       debugPrint('Detection error: $e');
       setState(() {
         _isProcessing = false;
-        _statusMessage = 'Detection failed';
-        _results = [];
+        _statusMessage = 'Scan failed';
       });
-      await _tts.speak('Detection failed. Please try again.');
+      await _tts.speak('Detection failed. Try again.');
     }
   }
 
   Future<void> _announceResults(List<DetectionResult> results) async {
-    if (results.isEmpty) {
-      setState(() => _statusMessage = 'No objects detected');
+    final confident = results.where((r) => r.confidence > 0.5).toList();
+
+    if (confident.isEmpty) {
+      setState(() => _statusMessage = 'No objects found');
       await _tts.speak('No objects detected.');
       return;
     }
 
-    final confident = results.where((r) => r.confidence > 0.5).toList();
-
-    if (confident.isEmpty) {
-      setState(() => _statusMessage = 'Objects unclear');
-      await _tts.speak('Objects unclear. Try again.');
-      return;
-    }
-
-    final count = confident.length;
-    final objectWord = count == 1 ? 'object' : 'objects';
     final labels = confident.map((r) => r.label).toSet().take(5).toList();
-    final labelText = labels.join(', ');
-
-    setState(() => _statusMessage = '$count $objectWord: ${labels.take(3).join(", ")}');
-    await _tts.speak('Found $count $objectWord: $labelText.');
-  }
-
-  @override
-  void dispose() {
-    _tts.removeOnStartListener(_onTtsStart);
-    _tts.removeOnCompleteListener(_onTtsComplete);
-    _voice.stopListening();
-    _camera?.dispose();
-    AudioFeedback.dispose();
-    super.dispose();
+    setState(() =>
+        _statusMessage = '${confident.length} objects: ${labels.take(3).join(", ")}');
+    await _tts.speak('Found ${confident.length} objects: ${labels.join(", ")}.');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text('Object Detection'),
-        backgroundColor: AppTheme.primaryColor,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          iconSize: 35,
-          onPressed: () async {
-            await _tts.speak('Going back');
-            if (mounted) Navigator.pop(context);
-          },
+      backgroundColor: AppTheme.backgroundColor,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(context),
+            _buildVoiceStatus(context),
+            Expanded(child: _buildCameraView()),
+            _buildBottomBar(context),
+          ],
         ),
       ),
-      body: Stack(
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
         children: [
-          // Camera preview
-          if (_isInitialized && _camera != null)
-            GestureDetector(
-              onTap: () async {
-                if (!_isProcessing) await _captureAndDetect();
-              },
-              child: SizedBox.expand(
+          GestureDetector(
+            onTap: () async {
+              await _tts.speak('Going back');
+              if (mounted) Navigator.pop(context);
+            },
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.arrow_back_rounded, size: 24),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Object Detection',
+                    style: Theme.of(context).textTheme.headlineSmall),
+                Text('Say "scan" or tap to detect',
+                    style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: () => _tts.speak('Say scan to detect objects, or back to return.'),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.help_outline_rounded, size: 24),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVoiceStatus(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: _isListening
+            ? AppTheme.successColor.withValues(alpha: 0.15)
+            : AppTheme.surfaceColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _isListening
+              ? AppTheme.successColor.withValues(alpha: 0.3)
+              : Colors.transparent,
+          width: 1.5,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: _isListening
+                  ? AppTheme.successColor.withValues(alpha: 0.2)
+                  : AppTheme.cardColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              _isListening ? Icons.mic_rounded : Icons.mic_off_rounded,
+              color: _isListening ? AppTheme.successColor : AppTheme.textSecondary,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _isListening ? 'Listening...' : 'Voice Ready',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _isListening
+                            ? AppTheme.successColor
+                            : AppTheme.textColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+                if (_recognizedText.isNotEmpty)
+                  Text(
+                    '"$_recognizedText"',
+                    style: Theme.of(context).textTheme.bodySmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+          if (_isListening)
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: AppTheme.successColor,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.successColor.withValues(alpha: 0.5),
+                    blurRadius: 6,
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildCameraView() {
+    if (!_isInitialized || _camera == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(color: AppTheme.accentColor),
+            const SizedBox(height: 16),
+            Text(_statusMessage, style: Theme.of(context).textTheme.bodyMedium),
+          ],
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () async {
+        if (!_isProcessing) await _captureAndDetect();
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AppTheme.surfaceColor, width: 3),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(21),
+          child: Stack(
+            children: [
+              SizedBox.expand(
                 child: FittedBox(
                   fit: BoxFit.cover,
                   child: SizedBox(
                     width: _camera!.value.previewSize!.height,
                     height: _camera!.value.previewSize!.width,
-                    child: Stack(
-                      children: [
-                        CameraPreview(_camera!),
-                        if (_results.isNotEmpty && _imageWidth != null && _imageHeight != null)
-                          CustomPaint(
-                            size: Size.infinite,
-                            painter: _DetectionPainter(_results, _imageWidth!, _imageHeight!),
-                          ),
-                      ],
-                    ),
+                    child: CameraPreview(_camera!),
                   ),
                 ),
               ),
-            )
-          else
-            const Center(child: CircularProgressIndicator(color: AppTheme.accentColor)),
-
-          // Status bar
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [Colors.black.withValues(alpha: 0.9), Colors.transparent],
+              if (_results.isNotEmpty && _imageWidth != null && _imageHeight != null)
+                CustomPaint(
+                  size: Size.infinite,
+                  painter: _DetectionPainter(_results, _imageWidth!, _imageHeight!),
+                ),
+              if (_isProcessing)
+                Container(
+                  color: Colors.black54,
+                  child: const Center(
+                    child: CircularProgressIndicator(color: AppTheme.accentColor),
                   ),
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Say "scan" or "back". Tap screen to scan.',
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11),
-                      textAlign: TextAlign.center,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        decoration: BoxDecoration(
+          color: _results.isNotEmpty
+              ? AppTheme.successColor.withValues(alpha: 0.15)
+              : AppTheme.surfaceColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _results.isNotEmpty
+                ? AppTheme.successColor.withValues(alpha: 0.3)
+                : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              _isProcessing
+                  ? Icons.hourglass_top_rounded
+                  : _results.isNotEmpty
+                      ? Icons.check_circle_rounded
+                      : Icons.center_focus_strong_rounded,
+              color: _results.isNotEmpty ? AppTheme.successColor : AppTheme.accentColor,
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _statusMessage,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color:
+                          _results.isNotEmpty ? AppTheme.successColor : AppTheme.textColor,
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        if (_isProcessing)
-                          const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(color: AppTheme.accentColor, strokeWidth: 2),
-                          )
-                        else if (_results.isNotEmpty)
-                          const Icon(Icons.check_circle, color: AppTheme.successColor, size: 20)
-                        else
-                          const Icon(Icons.center_focus_strong, color: AppTheme.accentColor, size: 20),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            _statusMessage,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_results.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          _results.where((r) => r.confidence > 0.5).map((r) => r.label).toSet().take(3).join(', '),
-                          style: const TextStyle(color: AppTheme.accentColor, fontSize: 12),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                  ],
-                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -362,7 +497,7 @@ class _DetectionPainter extends CustomPainter {
 
     final bgPaint = Paint()
       ..style = PaintingStyle.fill
-      ..color = AppTheme.successColor.withValues(alpha: 0.8);
+      ..color = AppTheme.successColor;
 
     final scaleX = size.width / imageWidth;
     final scaleY = size.height / imageHeight;
@@ -378,20 +513,27 @@ class _DetectionPainter extends CustomPainter {
         box.bottom * scaleY,
       );
 
-      canvas.drawRect(rect, boxPaint);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(8)),
+        boxPaint,
+      );
 
       final label = '${det.label} ${(det.confidence * 100).toInt()}%';
       final textPainter = TextPainter(
         text: TextSpan(
           text: label,
-          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+              color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
 
-      final labelRect = Rect.fromLTWH(rect.left, rect.top - 18, textPainter.width + 8, 18);
-      canvas.drawRect(labelRect, bgPaint);
-      textPainter.paint(canvas, Offset(rect.left + 4, rect.top - 16));
+      final labelRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(rect.left, rect.top - 22, textPainter.width + 12, 22),
+        const Radius.circular(6),
+      );
+      canvas.drawRRect(labelRect, bgPaint);
+      textPainter.paint(canvas, Offset(rect.left + 6, rect.top - 19));
     }
   }
 

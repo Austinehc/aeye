@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -7,7 +8,6 @@ import '../../../core/constants/app_constants.dart';
 import '../models/detection_result.dart';
 
 /// Object detection service using YOLOv8 TFLite model
-/// Handles model loading, inference, and result parsing with proper error handling
 class ObjectDetectorService {
   static final ObjectDetectorService _instance = ObjectDetectorService._internal();
   factory ObjectDetectorService() => _instance;
@@ -17,297 +17,279 @@ class ObjectDetectorService {
   List<String> _labels = [];
   bool _isInitialized = false;
   String? _lastError;
-  String _accelerator = 'none';
 
-  // Model configuration
-  List<int>? _inputShape;
-  List<int>? _outputShape;
-  bool _isInputCHW = false;
-  bool _isOutputCHW = false;
-
-  // Pre-allocated buffers for fast inference
-  Float32List? _inputBuffer;
-  Float32List? _outputBuffer;
-  int _targetWidth = 320;
-  int _targetHeight = 320;
-  int _numAnchors = 8400;
+  // Model dimensions (will be updated from tensor shape)
+  int _inputHeight = 640;
+  int _inputWidth = 640;
 
   bool get isInitialized => _isInitialized;
   String? get lastError => _lastError;
-  String get accelerator => _accelerator;
 
   /// Initialize the object detection model
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     try {
-      // Verify model file exists
-      try {
-        await rootBundle.load(AppConstants.objectDetectionModel);
-      } catch (e) {
-        throw ObjectDetectorException(
-          'Model file not found: ${AppConstants.objectDetectionModel}',
-          ObjectDetectorErrorType.modelNotFound,
-        );
+      debugPrint('🚀 Initializing ObjectDetector...');
+      
+      // Load model with options
+      final options = InterpreterOptions()..threads = 4;
+      _interpreter = await Interpreter.fromAsset(
+        AppConstants.objectDetectionModel,
+        options: options,
+      );
+
+      // Log tensor info
+      final inputTensors = _interpreter!.getInputTensors();
+      final outputTensors = _interpreter!.getOutputTensors();
+      
+      debugPrint('📐 Input tensors: ${inputTensors.length}');
+      for (var t in inputTensors) {
+        debugPrint('   - ${t.name}: ${t.shape} ${t.type}');
+      }
+      debugPrint('📐 Output tensors: ${outputTensors.length}');
+      for (var t in outputTensors) {
+        debugPrint('   - ${t.name}: ${t.shape} ${t.type}');
       }
 
-      // Verify labels file exists
-      try {
-        await rootBundle.load(AppConstants.objectDetectionLabels);
-      } catch (e) {
-        throw ObjectDetectorException(
-          'Labels file not found: ${AppConstants.objectDetectionLabels}',
-          ObjectDetectorErrorType.labelsNotFound,
-        );
+      // Get input dimensions from tensor shape [1, H, W, 3] or [1, 3, H, W]
+      final inputShape = inputTensors[0].shape;
+      if (inputShape[1] == 3) {
+        _inputHeight = inputShape[2];
+        _inputWidth = inputShape[3];
+      } else {
+        _inputHeight = inputShape[1];
+        _inputWidth = inputShape[2];
       }
-
-      // Load interpreter with best available delegate
-      _interpreter = await _loadInterpreterWithBestDelegate();
-
-      if (_interpreter == null) {
-        throw ObjectDetectorException(
-          'Failed to create TFLite interpreter',
-          ObjectDetectorErrorType.interpreterFailed,
-        );
-      }
-
-      // Get and validate tensor shapes
-      _inputShape = _interpreter!.getInputTensor(0).shape;
-      _outputShape = _interpreter!.getOutputTensor(0).shape;
-
-      if (_inputShape == null || _inputShape!.length != 4) {
-        throw ObjectDetectorException(
-          'Invalid input tensor shape: $_inputShape',
-          ObjectDetectorErrorType.invalidModel,
-        );
-      }
-
-      // Determine input format (CHW vs HWC)
-      _isInputCHW = _inputShape![1] == 3;
-      _targetHeight = _isInputCHW ? _inputShape![2] : _inputShape![1];
-      _targetWidth = _isInputCHW ? _inputShape![3] : _inputShape![2];
-
-      // Determine output format and anchor count
-      if (_outputShape != null && _outputShape!.length == 3) {
-        _isOutputCHW = _outputShape![1] == 84;
-        _numAnchors = _isOutputCHW ? _outputShape![2] : _outputShape![1];
-      }
-
-      // Pre-allocate buffers
-      _inputBuffer = Float32List(_targetWidth * _targetHeight * 3);
-      _outputBuffer = Float32List(84 * _numAnchors);
+      debugPrint('📐 Input size: ${_inputWidth}x$_inputHeight');
 
       // Load labels
       final labelsData = await rootBundle.loadString(AppConstants.objectDetectionLabels);
       _labels = labelsData.split('\n').where((l) => l.trim().isNotEmpty).toList();
+      debugPrint('📝 Loaded ${_labels.length} labels');
 
-      if (_labels.isEmpty) {
-        throw ObjectDetectorException(
-          'No labels found in labels file',
-          ObjectDetectorErrorType.labelsNotFound,
-        );
-      }
+      // Allocate tensors
+      _interpreter!.allocateTensors();
 
       _isInitialized = true;
       _lastError = null;
-      debugPrint('ObjectDetector initialized: $_accelerator, ${_labels.length} labels');
-    } catch (e) {
+      debugPrint('✅ ObjectDetector ready');
+    } catch (e, st) {
       _isInitialized = false;
       _lastError = e.toString();
-      _interpreter?.close();
-      _interpreter = null;
-      debugPrint('ObjectDetector initialization failed: $e');
+      debugPrint('❌ ObjectDetector init failed: $e');
+      debugPrint('$st');
       rethrow;
-    }
-  }
-
-  /// Load interpreter with best available hardware acceleration
-  Future<Interpreter> _loadInterpreterWithBestDelegate() async {
-    // Try GPU delegate first (fastest on supported devices)
-    try {
-      final gpuDelegate = GpuDelegateV2();
-      final options = InterpreterOptions()
-        ..addDelegate(gpuDelegate)
-        ..threads = 4;
-      final interpreter = await Interpreter.fromAsset(
-        AppConstants.objectDetectionModel,
-        options: options,
-      );
-      _accelerator = 'GPU';
-      debugPrint('Using GPU delegate for inference');
-      return interpreter;
-    } catch (e) {
-      debugPrint('GPU delegate not available: $e');
-    }
-
-    // Try NNAPI (Android Neural Network API)
-    try {
-      final options = InterpreterOptions()
-        ..threads = 4
-        ..useNnApiForAndroid = true;
-      final interpreter = await Interpreter.fromAsset(
-        AppConstants.objectDetectionModel,
-        options: options,
-      );
-      _accelerator = 'NNAPI';
-      debugPrint('Using NNAPI for inference');
-      return interpreter;
-    } catch (e) {
-      debugPrint('NNAPI not available: $e');
-    }
-
-    // Fallback to CPU with multi-threading
-    try {
-      final options = InterpreterOptions()..threads = 4;
-      final interpreter = await Interpreter.fromAsset(
-        AppConstants.objectDetectionModel,
-        options: options,
-      );
-      _accelerator = 'CPU';
-      debugPrint('Using CPU (4 threads) for inference');
-      return interpreter;
-    } catch (e) {
-      debugPrint('CPU interpreter failed: $e');
-      throw ObjectDetectorException(
-        'Failed to load model with any delegate: $e',
-        ObjectDetectorErrorType.interpreterFailed,
-      );
     }
   }
 
   /// Detect objects in an image
   Future<List<DetectionResult>> detectObjects(img.Image image) async {
     if (!_isInitialized) {
-      try {
-        await initialize();
-      } catch (e) {
-        debugPrint('Auto-initialization failed: $e');
-        return [];
-      }
+      await initialize();
     }
 
-    if (_interpreter == null || _inputBuffer == null || _outputBuffer == null) {
-      debugPrint('Detector not properly initialized');
+    if (_interpreter == null) {
+      debugPrint('❌ Interpreter is null');
       return [];
     }
 
     try {
-      // Preprocess image to buffer
-      _preprocessToBuffer(image);
+      // Get tensor info
+      final inputTensor = _interpreter!.getInputTensor(0);
+      final outputTensor = _interpreter!.getOutputTensor(0);
+      final inputShape = inputTensor.shape;
+      final outputShape = outputTensor.shape;
 
-      // Reshape input for interpreter
-      final input = _isInputCHW
-          ? _inputBuffer!.buffer.asFloat32List().reshape([1, 3, _targetHeight, _targetWidth])
-          : _inputBuffer!.buffer.asFloat32List().reshape([1, _targetHeight, _targetWidth, 3]);
+      // Resize image to model input size
+      final resized = img.copyResize(image, width: _inputWidth, height: _inputHeight);
+      
+      // Prepare input based on tensor type
+      final inputType = inputTensor.type;
+      
+      Object inputData;
+      if (inputType == TensorType.float32) {
+        inputData = _prepareFloat32Input(resized, inputShape);
+      } else if (inputType == TensorType.uint8) {
+        inputData = _prepareUint8Input(resized, inputShape);
+      } else {
+        debugPrint('❌ Unsupported input type: $inputType');
+        return [];
+      }
+
+      // Prepare output buffer - use simple nested List<double> which tflite_flutter expects
+      final outputType = outputTensor.type;
+      
+      // Output shape [1, 84, 8400] - create nested list of doubles
+      final outputData = List.generate(
+        outputShape[0],  // 1
+        (_) => List.generate(
+          outputShape[1],  // 84
+          (_) => List.filled(outputShape[2], 0.0),  // 8400
+        ),
+      );
 
       // Run inference
-      final output = _outputBuffer!.buffer.asFloat32List().reshape([1, 84, _numAnchors]);
-      _interpreter!.run(input, output);
+      _interpreter!.run(inputData, outputData);
 
-      // Parse and return results
-      return _parseResults(image.width, image.height);
-    } catch (e) {
-      debugPrint('Detection error: $e');
+      // Parse results
+      final results = _parseYoloOutputDouble(outputData[0], outputShape, image.width, image.height);
+      
+      return results;
+    } catch (e, st) {
+      debugPrint('❌ Detection error: $e');
+      debugPrint('$st');
       _lastError = e.toString();
       return [];
     }
   }
 
-  /// Preprocess image directly to flat buffer for fast inference
-  void _preprocessToBuffer(img.Image image) {
-    final resized = img.copyResize(image, width: _targetWidth, height: _targetHeight);
-    final buffer = _inputBuffer!;
-
-    if (_isInputCHW) {
-      // CHW format: all R, then all G, then all B
-      final planeSize = _targetWidth * _targetHeight;
-      int idx = 0;
-      for (int y = 0; y < _targetHeight; y++) {
-        for (int x = 0; x < _targetWidth; x++) {
-          final p = resized.getPixel(x, y);
-          buffer[idx] = p.r / 255.0;
-          buffer[planeSize + idx] = p.g / 255.0;
-          buffer[planeSize * 2 + idx] = p.b / 255.0;
-          idx++;
-        }
-      }
+  /// Prepare float32 input tensor
+  List<List<List<List<double>>>> _prepareFloat32Input(img.Image image, List<int> shape) {
+    final isNCHW = shape[1] == 3;
+    
+    if (isNCHW) {
+      // [1, 3, H, W] format
+      return [
+        List.generate(3, (c) =>
+          List.generate(_inputHeight, (y) =>
+            List.generate(_inputWidth, (x) {
+              final pixel = image.getPixel(x, y);
+              switch (c) {
+                case 0: return pixel.r / 255.0;
+                case 1: return pixel.g / 255.0;
+                case 2: return pixel.b / 255.0;
+                default: return 0.0;
+              }
+            }),
+          ),
+        ),
+      ];
     } else {
-      // HWC format: RGB interleaved
-      int idx = 0;
-      for (int y = 0; y < _targetHeight; y++) {
-        for (int x = 0; x < _targetWidth; x++) {
-          final p = resized.getPixel(x, y);
-          buffer[idx++] = p.r / 255.0;
-          buffer[idx++] = p.g / 255.0;
-          buffer[idx++] = p.b / 255.0;
-        }
-      }
+      // [1, H, W, 3] format
+      return [
+        List.generate(_inputHeight, (y) =>
+          List.generate(_inputWidth, (x) {
+            final pixel = image.getPixel(x, y);
+            return [pixel.r / 255.0, pixel.g / 255.0, pixel.b / 255.0];
+          }),
+        ),
+      ];
     }
   }
 
-  /// Parse YOLO output to detection results
-  List<DetectionResult> _parseResults(int imgWidth, int imgHeight) {
-    final buffer = _outputBuffer!;
+  /// Prepare uint8 input tensor
+  List<List<List<List<int>>>> _prepareUint8Input(img.Image image, List<int> shape) {
+    final isNCHW = shape[1] == 3;
+    
+    if (isNCHW) {
+      return [
+        List.generate(3, (c) =>
+          List.generate(_inputHeight, (y) =>
+            List.generate(_inputWidth, (x) {
+              final pixel = image.getPixel(x, y);
+              switch (c) {
+                case 0: return pixel.r.toInt();
+                case 1: return pixel.g.toInt();
+                case 2: return pixel.b.toInt();
+                default: return 0;
+              }
+            }),
+          ),
+        ),
+      ];
+    } else {
+      return [
+        List.generate(_inputHeight, (y) =>
+          List.generate(_inputWidth, (x) {
+            final pixel = image.getPixel(x, y);
+            return [pixel.r.toInt(), pixel.g.toInt(), pixel.b.toInt()];
+          }),
+        ),
+      ];
+    }
+  }
+
+  /// Parse YOLOv8 output format [84, 8400]
+  /// Row 0-3: x_center, y_center, width, height
+  /// Row 4-83: class probabilities
+  List<DetectionResult> _parseYoloOutputDouble(
+    List<List<double>> output,
+    List<int> shape,
+    int imgWidth,
+    int imgHeight,
+  ) {
+    final detections = <DetectionResult>[];
     final threshold = AppConstants.objectDetectionThreshold;
-    final detections = <_Detection>[];
+    
+    final numRows = shape[1];  // 84
+    final numCols = shape[2];  // 8400
+    
 
-    for (int i = 0; i < _numAnchors; i++) {
-      // Find max class score
-      double maxScore = 0;
-      int maxClass = 0;
+    
+    double maxConfidence = 0;
+    int aboveThreshold = 0;
 
-      for (int c = 0; c < 80; c++) {
-        final score = _isOutputCHW
-            ? buffer[(4 + c) * _numAnchors + i]
-            : buffer[i * 84 + 4 + c];
+    for (int i = 0; i < numCols; i++) {
+      // Get bounding box (in pixels relative to input size)
+      final xc = output[0][i];
+      final yc = output[1][i];
+      final w = output[2][i];
+      final h = output[3][i];
 
-        if (score > maxScore) {
-          maxScore = score;
-          maxClass = c;
+      // Find best class (rows 4-83)
+      double bestConf = 0;
+      int bestClass = 0;
+      for (int c = 0; c < 80 && (4 + c) < numRows; c++) {
+        final conf = output[4 + c][i];
+        if (conf > bestConf) {
+          bestConf = conf;
+          bestClass = c;
         }
       }
+      
+      if (bestConf > maxConfidence) maxConfidence = bestConf;
+      if (bestConf < threshold) continue;
+      aboveThreshold++;
 
-      // Skip low confidence detections
-      if (maxScore < threshold) continue;
-      if (maxClass >= _labels.length) continue;
+      // YOLOv8 outputs are ALREADY normalized 0-1 (not pixel coordinates)
+      // xc, yc = center, w, h = width/height as fractions of image
+      final ncx = xc;
+      final ncy = yc;
+      final nw = w;
+      final nh = h;
 
-      // Get bounding box
-      final xc = _isOutputCHW ? buffer[i] : buffer[i * 84];
-      final yc = _isOutputCHW ? buffer[_numAnchors + i] : buffer[i * 84 + 1];
-      final w = _isOutputCHW ? buffer[_numAnchors * 2 + i] : buffer[i * 84 + 2];
-      final h = _isOutputCHW ? buffer[_numAnchors * 3 + i] : buffer[i * 84 + 3];
+      // Skip invalid boxes (very small or very large)
+      if (nw <= 0.01 || nh <= 0.01) continue;
+      if (nw > 1.0 || nh > 1.0) continue;
 
-      // Filter invalid boxes
-      if (w > 0.8 || h > 0.8 || w < 0.02 || h < 0.02) continue;
+      // Convert to image coordinates
+      final left = ((ncx - nw / 2) * imgWidth).clamp(0.0, imgWidth.toDouble());
+      final top = ((ncy - nh / 2) * imgHeight).clamp(0.0, imgHeight.toDouble());
+      final right = ((ncx + nw / 2) * imgWidth).clamp(0.0, imgWidth.toDouble());
+      final bottom = ((ncy + nh / 2) * imgHeight).clamp(0.0, imgHeight.toDouble());
 
-      detections.add(_Detection(xc, yc, w, h, maxClass, maxScore));
-    }
+      if (right <= left || bottom <= top) {
+        if (aboveThreshold <= 3) debugPrint('      ❌ Skipped: invalid rect');
+        continue;
+      }
 
-    // Convert to results
-    final results = <DetectionResult>[];
-    for (final d in detections) {
-      final halfW = d.w / 2;
-      final halfH = d.h / 2;
-
-      final left = ((d.xc - halfW) * imgWidth).clamp(0.0, imgWidth.toDouble());
-      final top = ((d.yc - halfH) * imgHeight).clamp(0.0, imgHeight.toDouble());
-      final right = ((d.xc + halfW) * imgWidth).clamp(0.0, imgWidth.toDouble());
-      final bottom = ((d.yc + halfH) * imgHeight).clamp(0.0, imgHeight.toDouble());
-
-      if (right <= left || bottom <= top) continue;
-
-      results.add(DetectionResult(
-        label: _labels[d.classIdx],
-        confidence: d.score,
+      final label = bestClass < _labels.length ? _labels[bestClass] : 'object';
+      
+      detections.add(DetectionResult(
+        label: label,
+        confidence: bestConf,
         boundingBox: BoundingBox(left: left, top: top, right: right, bottom: bottom),
       ));
     }
 
-    // Apply NMS and return top 5
-    return _applyNMS(results).take(5).toList();
+
+
+    // Apply NMS and return top results
+    return _applyNMS(detections).take(5).toList();
   }
 
-  /// Apply Non-Maximum Suppression
+  /// Non-Maximum Suppression
   List<DetectionResult> _applyNMS(List<DetectionResult> detections, {double iouThreshold = 0.45}) {
     if (detections.isEmpty) return [];
 
@@ -329,17 +311,13 @@ class ObjectDetectorService {
     return selected;
   }
 
-  /// Calculate Intersection over Union
   double _iou(BoundingBox a, BoundingBox b) {
-    final x1 = a.left > b.left ? a.left : b.left;
-    final y1 = a.top > b.top ? a.top : b.top;
-    final x2 = a.right < b.right ? a.right : b.right;
-    final y2 = a.bottom < b.bottom ? a.bottom : b.bottom;
+    final x1 = math.max(a.left, b.left);
+    final y1 = math.max(a.top, b.top);
+    final x2 = math.min(a.right, b.right);
+    final y2 = math.min(a.bottom, b.bottom);
 
-    final iw = (x2 - x1).clamp(0.0, double.infinity);
-    final ih = (y2 - y1).clamp(0.0, double.infinity);
-    final intersection = iw * ih;
-
+    final intersection = math.max(0.0, x2 - x1) * math.max(0.0, y2 - y1);
     final areaA = (a.right - a.left) * (a.bottom - a.top);
     final areaB = (b.right - b.left) * (b.bottom - b.top);
     final union = areaA + areaB - intersection;
@@ -347,62 +325,25 @@ class ObjectDetectorService {
     return union > 0 ? intersection / union : 0;
   }
 
-  /// Dispose resources
   void dispose() {
     _interpreter?.close();
     _interpreter = null;
     _isInitialized = false;
-    _inputBuffer = null;
-    _outputBuffer = null;
-    _lastError = null;
   }
 }
 
-/// Internal detection data class
-class _Detection {
-  final double xc, yc, w, h;
-  final int classIdx;
-  final double score;
-  _Detection(this.xc, this.yc, this.w, this.h, this.classIdx, this.score);
+class ObjectDetectorException implements Exception {
+  final String message;
+  final ObjectDetectorErrorType type;
+  ObjectDetectorException(this.message, this.type);
+  @override
+  String toString() => 'ObjectDetectorException: $message';
 }
 
-/// Error types for object detection
 enum ObjectDetectorErrorType {
   modelNotFound,
   labelsNotFound,
   interpreterFailed,
   invalidModel,
   inferenceError,
-}
-
-/// Custom exception for object detection errors
-class ObjectDetectorException implements Exception {
-  final String message;
-  final ObjectDetectorErrorType type;
-
-  ObjectDetectorException(this.message, this.type);
-
-  @override
-  String toString() => 'ObjectDetectorException: $message (type: $type)';
-}
-
-/// Extension to reshape Float32List
-extension _Reshape on Float32List {
-  List<dynamic> reshape(List<int> shape) {
-    if (shape.length == 3) {
-      return List.generate(shape[0], (i) =>
-          List.generate(shape[1], (j) =>
-              List.generate(shape[2], (k) =>
-                  this[i * shape[1] * shape[2] + j * shape[2] + k])));
-    } else if (shape.length == 4) {
-      return List.generate(shape[0], (i) =>
-          List.generate(shape[1], (j) =>
-              List.generate(shape[2], (k) =>
-                  List.generate(shape[3], (l) =>
-                      this[i * shape[1] * shape[2] * shape[3] +
-                          j * shape[2] * shape[3] +
-                          k * shape[3] + l]))));
-    }
-    return toList();
-  }
 }

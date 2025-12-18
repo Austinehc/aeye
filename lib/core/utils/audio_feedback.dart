@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class AudioFeedback {
@@ -8,23 +9,32 @@ class AudioFeedback {
   static Future<void> initialize() async {
     if (_isInitialized) return;
     _isInitialized = true;
-    print('✅ Audio feedback initialized');
+    debugPrint('✅ Audio feedback initialized');
   }
 
-  // Play success beep - pleasant confirmation sound
+  // Play listening start beep - short click to indicate listening started
+  static Future<void> listeningStart() async {
+    try {
+      if (Platform.isIOS) {
+        await SystemSound.play(SystemSoundType.click);
+      } else {
+        HapticFeedback.lightImpact();
+      }
+    } catch (e) {
+      debugPrint('⚠️ Could not play listening start feedback: $e');
+    }
+  }
+
+  // Play success beep - pleasant confirmation sound (only for command recognition)
   static Future<void> success() async {
     try {
       if (Platform.isIOS) {
-        // iOS: Use system click sound
         await SystemSound.play(SystemSoundType.click);
       } else {
-        // Android/Other: Use selection feedback
-        HapticFeedback.selectionClick();
-        // Add short delay for audio effect perception
-        await Future.delayed(const Duration(milliseconds: 50));
+        HapticFeedback.mediumImpact();
       }
     } catch (e) {
-      print('⚠️ Could not play success audio feedback: $e');
+      debugPrint('⚠️ Could not play success audio feedback: $e');
     }
   }
 
@@ -32,16 +42,14 @@ class AudioFeedback {
   static Future<void> error() async {
     try {
       if (Platform.isIOS) {
-        // iOS: Use alert sound for errors
         await SystemSound.play(SystemSoundType.alert);
       } else {
-        // Android/Other: Use heavy haptic for errors
         HapticFeedback.heavyImpact();
         await Future.delayed(const Duration(milliseconds: 100));
         HapticFeedback.heavyImpact();
       }
     } catch (e) {
-      print('⚠️ Could not play error audio feedback: $e');
+      debugPrint('⚠️ Could not play error audio feedback: $e');
     }
   }
 
@@ -52,7 +60,6 @@ class AudioFeedback {
 
   // Dispose resources (no-op for system sounds)
   static Future<void> dispose() async {
-    // System sounds don't need cleanup
-    print('✅ Audio feedback disposed');
+    debugPrint('✅ Audio feedback disposed');
   }
 }

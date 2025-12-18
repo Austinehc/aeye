@@ -6,7 +6,7 @@ import '../../../core/services/settings_service.dart';
 import '../../../core/models/app_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({Key? key}) : super(key: key);
+  const SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -26,274 +26,361 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _announceScreen() async {
     await Future.delayed(const Duration(milliseconds: 500));
-    await _tts.speak(
-      'Settings screen. '
-      'Adjust text to speech, vibration, and battery settings. '
-      'Swipe down to go back.'
-    );
+    await _tts.speak('Settings screen. Adjust voice, vibration, and battery settings.');
   }
 
   Future<void> _updateSettings(AppSettings newSettings) async {
-    setState(() {
-      _settings = newSettings;
-    });
+    setState(() => _settings = newSettings);
     await _settingsService.saveSettings(newSettings);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: AppTheme.primaryColor,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          iconSize: 35,
-          onPressed: () async {
-            await _tts.speak('Going back');
-            Navigator.pop(context);
-          },
-        ),
-      ),
-      body: GestureDetector(
-        onVerticalDragEnd: (details) async {
-          if (details.primaryVelocity! > 0) {
-            await _tts.speak('Going back');
-            Navigator.pop(context);
-          }
-        },
-        child: ListView(
-          padding: const EdgeInsets.all(20),
+      backgroundColor: AppTheme.backgroundColor,
+      body: SafeArea(
+        child: Column(
           children: [
-            // TTS Settings Section
-            _buildSectionHeader('Text-to-Speech'),
-            _buildSliderSetting(
-              'Speech Rate',
-              _settings.speechRate,
-              0.1,
-              1.0,
-              (value) async {
-                await _updateSettings(_settings.copyWith(speechRate: value));
-                await _tts.speak('Speech rate adjusted');
-              },
-            ),
-            _buildSliderSetting(
-              'Pitch',
-              _settings.pitch,
-              0.5,
-              2.0,
-              (value) async {
-                await _updateSettings(_settings.copyWith(pitch: value));
-                await _tts.speak('Pitch adjusted');
-              },
-            ),
-            _buildSliderSetting(
-              'Volume',
-              _settings.volume,
-              0.0,
-              1.0,
-              (value) async {
-                await _updateSettings(_settings.copyWith(volume: value));
-                await _tts.speak('Volume adjusted');
-              },
-            ),
+            _buildHeader(context),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                children: [
+                  _buildSectionHeader('Text-to-Speech'),
+                  _buildSliderCard(
+                    icon: Icons.speed_rounded,
+                    label: 'Speech Rate',
+                    value: _settings.speechRate,
+                    min: 0.1,
+                    max: 1.0,
+                    onChanged: (value) async {
+                      await _updateSettings(_settings.copyWith(speechRate: value));
+                      await _tts.speak('Speech rate adjusted');
+                    },
+                  ),
+                  _buildSliderCard(
+                    icon: Icons.tune_rounded,
+                    label: 'Pitch',
+                    value: _settings.pitch,
+                    min: 0.5,
+                    max: 2.0,
+                    onChanged: (value) async {
+                      await _updateSettings(_settings.copyWith(pitch: value));
+                      await _tts.speak('Pitch adjusted');
+                    },
+                  ),
+                  _buildSliderCard(
+                    icon: Icons.volume_up_rounded,
+                    label: 'Volume',
+                    value: _settings.volume,
+                    min: 0.0,
+                    max: 1.0,
+                    onChanged: (value) async {
+                      await _updateSettings(_settings.copyWith(volume: value));
+                      await _tts.speak('Volume adjusted');
+                    },
+                  ),
 
-            const SizedBox(height: 30),
+                  const SizedBox(height: 24),
+                  _buildSectionHeader('Vibration'),
+                  _buildSwitchCard(
+                    icon: Icons.vibration_rounded,
+                    label: 'Vibration Enabled',
+                    description: 'Haptic feedback for actions',
+                    value: _settings.vibrationEnabled,
+                    onChanged: (value) async {
+                      await _updateSettings(_settings.copyWith(vibrationEnabled: value));
+                      if (value && await Vibration.hasVibrator() == true) {
+                        Vibration.vibrate(duration: 100);
+                      }
+                      await _tts.speak(value ? 'Vibration enabled' : 'Vibration disabled');
+                    },
+                  ),
+                  if (_settings.vibrationEnabled) _buildIntensityCard(),
 
-            // Vibration Settings Section
-            _buildSectionHeader('Vibration'),
-            _buildSwitchSetting(
-              'Vibration Enabled',
-              _settings.vibrationEnabled,
-              (value) async {
-                await _updateSettings(_settings.copyWith(vibrationEnabled: value));
-                if (value && await Vibration.hasVibrator() == true) {
-                  Vibration.vibrate(duration: 100);
-                }
-                await _tts.speak(value ? 'Vibration enabled' : 'Vibration disabled');
-              },
+                  const SizedBox(height: 24),
+                  _buildSectionHeader('Battery Optimization'),
+                  _buildSwitchCard(
+                    icon: Icons.battery_saver_rounded,
+                    label: 'Battery Saver Mode',
+                    description: 'Reduce camera quality to save power',
+                    value: _settings.batterySaverMode,
+                    onChanged: (value) async {
+                      await _updateSettings(_settings.copyWith(batterySaverMode: value));
+                      await _tts.speak(value
+                          ? 'Battery saver enabled'
+                          : 'Battery saver disabled');
+                    },
+                  ),
+                  _buildSwitchCard(
+                    icon: Icons.camera_alt_rounded,
+                    label: 'Auto-Stop Camera',
+                    description: 'Stop camera when battery is low',
+                    value: _settings.autoStopCamera,
+                    onChanged: (value) async {
+                      await _updateSettings(_settings.copyWith(autoStopCamera: value));
+                      await _tts.speak(value
+                          ? 'Camera will auto-stop when battery is low'
+                          : 'Camera will not auto-stop');
+                    },
+                  ),
+
+                  const SizedBox(height: 24),
+                  _buildTestButton(),
+                ],
+              ),
             ),
-            if (_settings.vibrationEnabled)
-              _buildIntensitySetting(),
-
-            const SizedBox(height: 30),
-
-            // Battery Optimization Section
-            _buildSectionHeader('Battery Optimization'),
-            _buildSwitchSetting(
-              'Battery Saver Mode',
-              _settings.batterySaverMode,
-              (value) async {
-                await _updateSettings(_settings.copyWith(batterySaverMode: value));
-                await _tts.speak(value 
-                    ? 'Battery saver enabled. GPS and camera quality will be reduced.' 
-                    : 'Battery saver disabled');
-              },
-            ),
-            _buildSwitchSetting(
-              'Auto-Stop Camera',
-              _settings.autoStopCamera,
-              (value) async {
-                await _updateSettings(_settings.copyWith(autoStopCamera: value));
-                await _tts.speak(value 
-                    ? 'Camera will auto-stop when battery is low' 
-                    : 'Camera will not auto-stop');
-              },
-            ),
-            _buildSwitchSetting(
-              'Reduced GPS Accuracy',
-              _settings.reducedGPSAccuracy,
-              (value) async {
-                await _updateSettings(_settings.copyWith(reducedGPSAccuracy: value));
-                await _tts.speak(value 
-                    ? 'GPS accuracy reduced to save battery' 
-                    : 'GPS accuracy set to high');
-              },
-            ),
-
-            const SizedBox(height: 30),
-
-            // Voice Control Section removed (headset button feature deprecated)
-
-            // Test TTS Button
-            _buildTestButton(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 15),
-      child: Text(
-        title,
-        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-          color: AppTheme.accentColor,
-          fontWeight: FontWeight.bold,
-        ),
+  Widget _buildHeader(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () async {
+              await _tts.speak('Going back');
+              if (mounted) Navigator.pop(context);
+            },
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.arrow_back_rounded, size: 24),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Settings', style: Theme.of(context).textTheme.headlineSmall),
+                Text('Customize your experience', style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildSliderSetting(
-    String label,
-    double value,
-    double min,
-    double max,
-    Function(double) onChanged,
-  ) {
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, top: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 20,
+            decoration: BoxDecoration(
+              color: AppTheme.accentColor,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: AppTheme.accentColor,
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildSliderCard({
+    required IconData icon,
+    required String label,
+    required double value,
+    required double min,
+    required double max,
+    required Function(double) onChanged,
+  }) {
     return GestureDetector(
       onTap: () async {
-        await _tts.speak('$label. Current value ${value.toStringAsFixed(2)}');
+        await _tts.speak('$label. Current value ${value.toStringAsFixed(1)}');
       },
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 15),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    label,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceColor,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  Text(
-                    value.toStringAsFixed(2),
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: AppTheme.accentColor,
-                    ),
+                  child: Icon(icon, color: AppTheme.primaryColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(label, style: Theme.of(context).textTheme.titleLarge),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentColor.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                ],
+                  child: Text(
+                    value.toStringAsFixed(1),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppTheme.accentColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: AppTheme.primaryColor,
+                inactiveTrackColor: AppTheme.cardColor,
+                thumbColor: AppTheme.primaryColor,
+                overlayColor: AppTheme.primaryColor.withValues(alpha: 0.2),
+                trackHeight: 6,
               ),
-              const SizedBox(height: 10),
-              Slider(
+              child: Slider(
                 value: value,
                 min: min,
                 max: max,
                 divisions: 20,
-                activeColor: AppTheme.accentColor,
                 onChanged: onChanged,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildSwitchSetting(
-    String label,
-    bool value,
-    Function(bool) onChanged,
-  ) {
+  Widget _buildSwitchCard({
+    required IconData icon,
+    required String label,
+    required String description,
+    required bool value,
+    required Function(bool) onChanged,
+  }) {
     return GestureDetector(
       onTap: () async {
         await _tts.speak('$label. Currently ${value ? "enabled" : "disabled"}. Double tap to toggle.');
       },
       onDoubleTap: () => onChanged(!value),
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 15),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              Switch(
-                value: value,
-                activeColor: AppTheme.accentColor,
-                onChanged: onChanged,
-              ),
-            ],
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: value ? AppTheme.successColor.withValues(alpha: 0.3) : Colors.transparent,
+            width: 1.5,
           ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: value
+                    ? AppTheme.successColor.withValues(alpha: 0.2)
+                    : AppTheme.cardColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                icon,
+                color: value ? AppTheme.successColor : AppTheme.textSecondary,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 2),
+                  Text(
+                    description,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            Switch(
+              value: value,
+              activeColor: AppTheme.successColor,
+              activeTrackColor: AppTheme.successColor.withValues(alpha: 0.3),
+              inactiveThumbColor: AppTheme.textSecondary,
+              inactiveTrackColor: AppTheme.cardColor,
+              onChanged: onChanged,
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildIntensitySetting() {
+
+  Widget _buildIntensityCard() {
     return GestureDetector(
       onTap: () async {
         final intensity = ['Low', 'Medium', 'High'][_settings.vibrationIntensity - 1];
         await _tts.speak('Vibration intensity. Currently $intensity');
       },
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 15),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Vibration Intensity',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceColor,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentColor.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.graphic_eq_rounded, color: AppTheme.accentColor, size: 20),
                 ),
-              ),
-              const SizedBox(height: 15),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildIntensityButton('Low', 1),
-                  _buildIntensityButton('Medium', 2),
-                  _buildIntensityButton('High', 3),
-                ],
-              ),
-            ],
-          ),
+                const SizedBox(width: 12),
+                Text('Vibration Intensity', style: Theme.of(context).textTheme.titleLarge),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _buildIntensityButton('Low', 1),
+                const SizedBox(width: 10),
+                _buildIntensityButton('Medium', 2),
+                const SizedBox(width: 10),
+                _buildIntensityButton('High', 3),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -312,22 +399,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
           await _tts.speak('$label intensity selected');
         },
         child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 5),
-          padding: const EdgeInsets.symmetric(vertical: 15),
+          padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
-            color: isSelected ? AppTheme.accentColor : AppTheme.surfaceColor,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isSelected ? AppTheme.accentColor : Colors.transparent,
-              width: 2,
-            ),
+            color: isSelected ? AppTheme.accentColor : AppTheme.cardColor,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: AppTheme.accentColor.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
           child: Text(
             label,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            ),
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected ? AppTheme.backgroundColor : AppTheme.textColor,
+                ),
           ),
         ),
       ),
@@ -335,18 +427,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildTestButton() {
-    return ElevatedButton.icon(
-      onPressed: () async {
+    return GestureDetector(
+      onTap: () async {
         await _tts.speak(
           'This is a test of your text to speech settings. '
-          'The quick brown fox jumps over the lazy dog.'
+          'The quick brown fox jumps over the lazy dog.',
         );
       },
-      icon: const Icon(Icons.volume_up, size: 30),
-      label: const Text('Test Voice Settings'),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: AppTheme.successColor,
-        minimumSize: const Size(double.infinity, 70),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [AppTheme.successColor, Color(0xFF16A34A)],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.successColor.withValues(alpha: 0.3),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.volume_up_rounded, color: Colors.white, size: 24),
+            const SizedBox(width: 12),
+            Text(
+              'Test Voice Settings',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -8,7 +8,7 @@ class AppConstants {
   static const String objectDetectionLabels = 'assets/models/labelmap.txt';
   
   // Confidence Thresholds
-  static const double objectDetectionThreshold = 0.45; // Higher threshold for better quality detections
+  static const double objectDetectionThreshold = 0.25; // Lower threshold to catch more detections
   static const double nmsIouThreshold = 0.45; // Standard NMS threshold for good overlap filtering
   static const double ocrConfidenceThreshold = 0.7;
   
@@ -22,8 +22,8 @@ class AppConstants {
   static const double defaultVolume = 1.0;
   
   // Camera Settings
-  static const int targetImageWidth = 320;
-  static const int targetImageHeight = 320;
+  static const int targetImageWidth = 640;
+  static const int targetImageHeight = 640;
   
 
   
