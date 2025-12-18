@@ -17,7 +17,7 @@ class OCRScreen extends StatefulWidget {
   State<OCRScreen> createState() => _OCRScreenState();
 }
 
-class _OCRScreenState extends State<OCRScreen> {
+class _OCRScreenState extends State<OCRScreen> with WidgetsBindingObserver {
   final TTSService _tts = TTSService();
   final OCRService _ocrService = OCRService();
   final VoiceService _voiceService = VoiceService();
@@ -35,18 +35,40 @@ class _OCRScreenState extends State<OCRScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeCamera();
     _initializeVoice();
     _tts.addOnStartListener(_onTtsStart);
     _tts.addOnCompleteListener(_onTtsComplete);
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      _restartVoiceListening();
+    } else if (state == AppLifecycleState.paused) {
+      _voiceService.stopListening();
+      if (mounted) setState(() => _isListening = false);
+    }
+  }
+
+  Future<void> _restartVoiceListening() async {
+    if (!mounted) return;
+    await _voiceService.stopListening();
+    setState(() => _isListening = false);
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (mounted && !_tts.isSpeaking && _voiceService.isInitialized) {
+      _startListening();
+    }
+  }
+
   Future<void> _initializeVoice() async {
     try {
       final status = await Permission.microphone.request();
       if (status.isDenied) return;
-      final ok = await _voiceService.initialize();
-      if (ok) _startListening();
+      await _voiceService.initialize();
+      // Note: listening will start after TTS completes via _onTtsComplete
     } catch (_) {}
   }
 
@@ -61,17 +83,23 @@ class _OCRScreenState extends State<OCRScreen> {
 
   Future<void> _startListening() async {
     if (!mounted) return;
-    await _voiceService.startListening(
-      onResult: (text) async {
-        if (!mounted) return;
-        await _handleVoiceResult(text);
-      },
-      onPartialResult: (_) {},
-      onListeningStateChanged: (isListening) {
-        if (mounted) setState(() => _isListening = isListening);
-      },
-      continuous: true,
-    );
+    if (!_voiceService.isInitialized && !await _voiceService.initialize()) return;
+
+    try {
+      await _voiceService.startListening(
+        onResult: (text) async {
+          if (!mounted) return;
+          await _handleVoiceResult(text);
+        },
+        onPartialResult: (_) {},
+        onListeningStateChanged: (isListening) {
+          if (mounted) setState(() => _isListening = isListening);
+        },
+        continuous: true,
+      );
+    } catch (e) {
+      if (mounted) setState(() => _isListening = false);
+    }
   }
 
   Future<void> _handleVoiceResult(String text) async {
@@ -156,7 +184,13 @@ class _OCRScreenState extends State<OCRScreen> {
       } catch (_) {}
 
       final result = await _ocrService.recognizeText(image);
-      File(image.path).delete().catchError((_) => File(image.path));
+      
+      // Clean up temp file
+      try {
+        await File(image.path).delete();
+      } catch (_) {
+        // Ignore deletion errors
+      }
 
       setState(() {
         _detectionResult = result;
@@ -201,6 +235,7 @@ class _OCRScreenState extends State<OCRScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _cameraController?.dispose();
     _tts.stop();
     _voiceService.stopListening();
@@ -443,5 +478,9 @@ class _TextBlockPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_TextBlockPainter oldDelegate) => true;
+  bool shouldRepaint(_TextBlockPainter oldDelegate) {
+    return blocks != oldDelegate.blocks ||
+        srcWidth != oldDelegate.srcWidth ||
+        srcHeight != oldDelegate.srcHeight;
+  }
 }

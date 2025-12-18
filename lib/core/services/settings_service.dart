@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
 import '../utils/tts_service.dart';
@@ -33,7 +34,7 @@ class SettingsService {
         await _applyTTSSettings();
       }
     } catch (e) {
-      print('Error loading settings: $e');
+      debugPrint('Error loading settings: $e');
     }
   }
 
@@ -49,7 +50,7 @@ class SettingsService {
       // Apply TTS settings immediately
       await _applyTTSSettings();
     } catch (e) {
-      print('Error saving settings: $e');
+      debugPrint('Error saving settings: $e');
     }
   }
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../constants/app_constants.dart';
 
@@ -21,12 +22,12 @@ class TTSService {
     if (_isInitialized) return true;
 
     try {
-      print('Initializing TTS Service...');
+      debugPrint('Initializing TTS Service...');
       
       // Check if TTS is available
       final languages = await _flutterTts.getLanguages;
       if (languages.isEmpty) {
-        print(' No TTS languages available on device');
+        debugPrint(' No TTS languages available on device');
         _isInitialized = false;
         return false;
       }
@@ -39,31 +40,35 @@ class TTSService {
       // Set callbacks
       _flutterTts.setStartHandler(() {
         _isSpeaking = true;
-        for (final l in _onStartListeners) {
+        // Create a copy to avoid concurrent modification
+        final listeners = List<void Function()>.from(_onStartListeners);
+        for (final l in listeners) {
           try { l(); } catch (_) {}
         }
       });
 
       _flutterTts.setCompletionHandler(() {
         _isSpeaking = false;
-        for (final l in _onCompleteListeners) {
+        // Create a copy to avoid concurrent modification
+        final listeners = List<void Function()>.from(_onCompleteListeners);
+        for (final l in listeners) {
           try { l(); } catch (_) {}
         }
       });
 
       _flutterTts.setErrorHandler((msg) {
         _isSpeaking = false;
-        print(' TTS Error: $msg');
+        debugPrint(' TTS Error: $msg');
         // Mark as not initialized on error
         _isInitialized = false;
       });
 
       _isInitialized = true;
-      print(' TTS Service initialized successfully');
+      debugPrint(' TTS Service initialized successfully');
       return true;
     } catch (e, stackTrace) {
-      print(' Error initializing TTS: $e');
-      print('   Stack trace: $stackTrace');
+      debugPrint(' Error initializing TTS: $e');
+      debugPrint('   Stack trace: $stackTrace');
       _isInitialized = false;
       return false;
     }
@@ -77,7 +82,7 @@ class TTSService {
     if (!_isInitialized) {
       final success = await initialize();
       if (!success) {
-        print(' TTS not available, skipping speech: "$text"');
+        debugPrint(' TTS not available, skipping speech: "$text"');
         return false;  // Gracefully skip if TTS unavailable
       }
     }
@@ -87,8 +92,8 @@ class TTSService {
       await _flutterTts.speak(text);
       return true;
     } catch (e) {
-      print(' Error speaking: $e');
-      print('   Text was: "$text"');
+      debugPrint(' Error speaking: $e');
+      debugPrint('   Text was: "$text"');
       _isInitialized = false;  // Mark as failed for re-initialization
       return false;
     }
@@ -102,7 +107,7 @@ class TTSService {
         _isSpeaking = false;
         return true;
       } catch (e) {
-        print('❌ Error stopping speech: $e');
+        debugPrint('❌ Error stopping speech: $e');
         _isSpeaking = false;
         return false;
       }

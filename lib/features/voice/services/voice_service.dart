@@ -24,10 +24,6 @@ class VoiceService {
   // Timers
   Timer? _restartTimer;
   
-  // State tracking to prevent race conditions
-  bool _isRestarting = false;
-  bool _isStopping = false;
-  
   // Constants
   static const Duration _listenDuration = Duration(seconds: 30);
   static const Duration _pauseDuration = Duration(seconds: 3);

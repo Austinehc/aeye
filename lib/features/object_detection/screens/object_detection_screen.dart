@@ -203,7 +203,12 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen>
 
       final results = await _detector.detectObjects(decoded);
 
-      File(xFile.path).delete().catchError((_) => File(xFile.path));
+      // Clean up temp file
+      try {
+        await File(xFile.path).delete();
+      } catch (_) {
+        // Ignore deletion errors
+      }
 
       setState(() {
         _results = results;
