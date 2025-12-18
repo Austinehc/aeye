@@ -12,7 +12,6 @@ import 'core/services/battery_service.dart';
 import 'core/services/error_reporting_service.dart';
 import 'features/home/screens/home_screen.dart';
 
-// Global logger instance
 final logger = Logger(
   printer: PrettyPrinter(
     methodCount: 2,
@@ -25,105 +24,80 @@ final logger = Logger(
 );
 
 void main() async {
-  // Run app in error zone to catch all errors
   runZonedGuarded<Future<void>>(() async {
     WidgetsFlutterBinding.ensureInitialized();
-    
-    // Initialize error reporting first
+
     await ErrorReportingService().initialize();
-    
-    // Set preferred orientations
+
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
     ]);
-    
-    // Keep screen awake
+
     WakelockPlus.enable();
-    
-    // Initialize services with error handling
-    try {
-      await TTSService().initialize();
-      await SettingsService().initialize();
-      await BatteryService().initialize();
-      // Headset button feature removed
-      logger.i('✅ All services initialized successfully');
-    } catch (e, stackTrace) {
-      logger.e('❌ Error initializing services', error: e, stackTrace: stackTrace);
-      ErrorReportingService().recordError(e, stackTrace, fatal: false);
-    }
-    
-    // Handle Flutter framework errors
+
     FlutterError.onError = (FlutterErrorDetails details) {
-      // Handle overflow errors specially - they're usually cosmetic
       final isOverflowError = details.exception.toString().contains('overflowed');
-      
       if (isOverflowError) {
-        // Log overflow errors but don't spam the console
         if (kDebugMode) {
-          logger.w('Layout overflow detected (cosmetic): ${details.exception}');
+          logger.w('Layout overflow detected: ${details.exception}');
         }
-        // Don't present these errors as they're visual noise
         return;
       }
-      
       FlutterError.presentError(details);
       ErrorReportingService().recordFlutterError(details);
       logger.e('Flutter Error', error: details.exception, stackTrace: details.stack);
     };
-    
+
     runApp(const AeyeApp());
   }, (error, stackTrace) {
-    // Catch errors outside Flutter framework
     logger.e('Uncaught Error', error: error, stackTrace: stackTrace);
     ErrorReportingService().recordError(error, stackTrace, fatal: true);
   });
 }
 
 class AeyeApp extends StatelessWidget {
-  const AeyeApp({Key? key}) : super(key: key);
+  const AeyeApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Aeye',
       theme: AppTheme.darkTheme,
-      home: const SplashScreen(),
+      home: const LoadingScreen(),
       debugShowCheckedModeBanner: false,
       builder: (context, child) {
-        // Wrap app in MediaQuery to handle layout constraints properly
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(
-            textScaler: TextScaler.linear(1.0), // Prevent text scaling issues
+            textScaler: const TextScaler.linear(1.0),
           ),
-          child: Material(
-            child: child!,
-          ),
+          child: Material(child: child!),
         );
       },
     );
   }
 }
 
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({Key? key}) : super(key: key);
+class LoadingScreen extends StatefulWidget {
+  const LoadingScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  State<LoadingScreen> createState() => _LoadingScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
-  final TTSService _tts = TTSService();
+class _LoadingScreenState extends State<LoadingScreen> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
+  String _loadingStatus = 'Starting...';
+  bool _hasError = false;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1200),
     );
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
@@ -135,7 +109,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     );
 
     _controller.forward();
-    _initialize();
+    _initializeApp();
   }
 
   @override
@@ -144,25 +118,58 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
-  Future<void> _initialize() async {
-    // ✅ REMOVED: No voice feedback on startup
-    
-    // Wait for animation and permissions
-    await Future.wait([
-      Future.delayed(const Duration(seconds: 2)),
-      PermissionsHandler.requestAllPermissions(),
-    ]);
-    
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) => const HomeScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-          transitionDuration: const Duration(milliseconds: 800),
-        ),
-      );
+  Future<void> _initializeApp() async {
+    try {
+      // Request permissions
+      setState(() => _loadingStatus = 'Requesting permissions...');
+      await PermissionsHandler.requestAllPermissions();
+
+      // Initialize TTS
+      setState(() => _loadingStatus = 'Initializing voice...');
+      await TTSService().initialize();
+
+      // Initialize settings
+      setState(() => _loadingStatus = 'Loading settings...');
+      await SettingsService().initialize();
+
+      // Initialize battery service
+      setState(() => _loadingStatus = 'Preparing services...');
+      await BatteryService().initialize();
+
+      logger.i('✅ All services initialized successfully');
+
+      setState(() => _loadingStatus = 'Ready!');
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) => const HomeScreen(),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: const Duration(milliseconds: 600),
+          ),
+        );
+      }
+    } catch (e, stackTrace) {
+      logger.e('❌ Error initializing app', error: e, stackTrace: stackTrace);
+      ErrorReportingService().recordError(e, stackTrace, fatal: false);
+
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+          _loadingStatus = 'Error: ${e.toString().split('\n').first}';
+        });
+
+        // Still try to navigate after error
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+        }
+      }
     }
   }
 
@@ -170,129 +177,112 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      body: Stack(
-        children: [
-          // Animated Background Gradient
-          Container(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.center,
-                radius: 1.5,
-                colors: [
-                  AppTheme.primaryColor.withValues(alpha: 0.3),
-                  AppTheme.backgroundColor,
-                ],
-              ),
-            ),
-          ),
-          
-          // Decorative Circles
-          Positioned(
-            top: -100,
-            right: -100,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppTheme.accentColor.withValues(alpha: 0.1),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -50,
-            left: -50,
-            child: Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppTheme.primaryColor.withValues(alpha: 0.1),
-              ),
-            ),
-          ),
-
-          // Main Content
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Logo
-                ScaleTransition(
-                  scale: _scaleAnimation,
-                  child: Container(
-                    padding: const EdgeInsets.all(30),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppTheme.surfaceColor,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.primaryColor.withValues(alpha: 0.5),
-                          blurRadius: 30,
-                          spreadRadius: 5,
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.visibility,
-                      size: 80,
-                      color: AppTheme.accentColor,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 40),
-                
-                // Text
-                FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: Column(
-                    children: [
-                      Text(
-                        'Aeye',
-                        style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 2,
-                          color: Colors.white,
-                          shadows: [
-                            Shadow(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // App Logo
+            ScaleTransition(
+              scale: _scaleAnimation,
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Image.asset(
+                    'assets/images/app_icon.png',
+                    width: 150,
+                    height: 150,
+                    errorBuilder: (context, error, stackTrace) {
+                      // Fallback if image not found
+                      return Container(
+                        width: 150,
+                        height: 150,
+                        decoration: BoxDecoration(
+                          color: AppTheme.surfaceColor,
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
                               color: AppTheme.primaryColor.withValues(alpha: 0.5),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
+                              blurRadius: 20,
+                              spreadRadius: 2,
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Your Vision, Enhanced',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          color: Colors.white70,
-                          letterSpacing: 1.2,
-                          fontWeight: FontWeight.w300,
+                        child: const Icon(
+                          Icons.visibility,
+                          size: 80,
+                          color: AppTheme.accentColor,
                         ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ),
-                
-                const SizedBox(height: 60),
-                
-                // Loading Indicator
-                FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: const SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accentColor),
-                      strokeWidth: 3,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        ],
+
+            const SizedBox(height: 40),
+
+            // App Name
+            FadeTransition(
+              opacity: _fadeAnimation,
+              child: Text(
+                'AEye',
+                style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
+                      color: Colors.white,
+                    ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            FadeTransition(
+              opacity: _fadeAnimation,
+              child: Text(
+                'Your Vision, Enhanced',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Colors.white70,
+                      letterSpacing: 1,
+                    ),
+              ),
+            ),
+
+            const SizedBox(height: 60),
+
+            // Loading indicator
+            FadeTransition(
+              opacity: _fadeAnimation,
+              child: Column(
+                children: [
+                  if (!_hasError)
+                    const SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accentColor),
+                        strokeWidth: 3,
+                      ),
+                    )
+                  else
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.orange,
+                      size: 36,
+                    ),
+                  const SizedBox(height: 16),
+                  Text(
+                    _loadingStatus,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: _hasError ? Colors.orange : Colors.white60,
+                        ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

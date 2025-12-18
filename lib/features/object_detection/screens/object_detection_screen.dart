@@ -11,34 +11,25 @@ import '../models/detection_result.dart';
 import '../../voice/services/voice_service.dart';
 
 class ObjectDetectionScreen extends StatefulWidget {
-  const ObjectDetectionScreen({Key? key}) : super(key: key);
+  const ObjectDetectionScreen({super.key});
 
   @override
   State<ObjectDetectionScreen> createState() => _ObjectDetectionScreenState();
 }
 
 class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
-  // Services
   final _tts = TTSService();
   final _detector = ObjectDetectorService();
   final _voice = VoiceService();
 
-  // Camera
   CameraController? _camera;
   bool _isInitialized = false;
-
-  // Detection state
   bool _isProcessing = false;
   List<DetectionResult> _results = [];
   String _statusMessage = 'Initializing camera...';
   int? _imageWidth;
   int? _imageHeight;
-
-  // Voice
   bool _isListening = false;
-  
-  // Detection loop control
-  bool _detectionActive = false;
 
   @override
   void initState() {
@@ -75,10 +66,9 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
       if (mounted) {
         setState(() {
           _isInitialized = true;
-          _statusMessage = 'Ready. Say "scan" or tap to detect objects';
+          _statusMessage = 'Ready. Say "scan" to detect objects.';
         });
-
-        await _tts.speak('Camera ready. Say scan to detect objects.');
+        await _tts.speak('Object detection ready. Say scan to detect, or back to exit.');
       }
     } catch (e) {
       debugPrint('Camera init error: $e');
@@ -106,13 +96,9 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
       }
 
       final ok = await _voice.initialize();
-      if (ok) {
-        _startListening();
-      }
+      if (ok) _startListening();
 
-      // Pause listening when TTS starts speaking
       _tts.addOnStartListener(_onTtsStart);
-      // Resume listening when TTS finishes
       _tts.addOnCompleteListener(_onTtsComplete);
     } catch (e) {
       debugPrint('Voice init error: $e');
@@ -120,23 +106,18 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
   }
 
   void _onTtsStart() {
-    if (mounted) {
-      setState(() => _isListening = false);
-    }
+    if (mounted) setState(() => _isListening = false);
     _voice.cancelListening();
   }
 
   void _onTtsComplete() {
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted && !_isListening) {
-        _startListening();
-      }
+      if (mounted && !_isListening) _startListening();
     });
   }
 
   Future<void> _startListening() async {
     if (_isListening || !mounted) return;
-    
     setState(() => _isListening = true);
 
     await _voice.startListening(
@@ -146,38 +127,24 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
         await _handleVoiceCommand(text);
       },
       onPartialResult: (_) {},
-      continuous: true, // VoiceService handles auto-restart
+      continuous: true,
     );
   }
 
   Future<void> _handleVoiceCommand(String text) async {
-    final cmd = text.toLowerCase();
+    final cmd = text.toLowerCase().trim();
 
-    if (cmd.contains('start') || cmd.contains('scan') || cmd.contains('detect') || cmd.contains('begin')) {
+    // Object Detection commands: scan, back/exit
+    if (cmd.contains('scan')) {
       AudioFeedback.success();
-      _detectionActive = true;
       await _captureAndDetect();
-    } else if (cmd.contains('stop') || cmd.contains('pause')) {
-      AudioFeedback.success();
-      _detectionActive = false;
-      setState(() => _statusMessage = 'Detection paused. Say start to resume.');
-      await _tts.speak('Detection paused. Say start to resume.');
-    } else if (cmd.contains('what') || cmd.contains('see')) {
-      AudioFeedback.success();
-      await _announceCurrentResults();
-    } else if (cmd.contains('help')) {
-      AudioFeedback.success();
-      await _tts.speak(
-        'Say start to begin detection, stop to pause, what do you see for results, or back to go back.',
-      );
     } else if (cmd.contains('back') || cmd.contains('exit')) {
       AudioFeedback.success();
-      _detectionActive = false;
       await _tts.speak('Going back');
       if (mounted) Navigator.pop(context);
     } else {
       AudioFeedback.error();
-      await _tts.speak('Command not recognized. Say help for options.');
+      await _tts.speak('Unknown command. Say scan or back.');
     }
   }
 
@@ -196,7 +163,6 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
     await _tts.speak('Scanning');
 
     try {
-      // Capture image
       final xFile = await _camera!.takePicture();
       final bytes = await File(xFile.path).readAsBytes();
       final decoded = img.decodeImage(bytes);
@@ -208,22 +174,17 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
       _imageWidth = decoded.width;
       _imageHeight = decoded.height;
 
-      // Resize for model
       final resized = img.copyResize(decoded, width: 320, height: 320);
-
-      // Run detection
       final results = await _detector.detectObjects(resized);
 
       // Clean up temp file
-      File(xFile.path).delete().catchError((_) {});
+      File(xFile.path).delete().catchError((_) => File(xFile.path));
 
-      // Update state
       setState(() {
         _results = results;
         _isProcessing = false;
       });
 
-      // Announce results with error handling
       await _announceResults(results);
     } catch (e) {
       debugPrint('Detection error: $e');
@@ -232,66 +193,32 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
         _statusMessage = 'Detection failed';
         _results = [];
       });
-
-      // Error handling with helpful message
-      String errorMessage = 'Detection failed. ';
-      if (e.toString().contains('model') || e.toString().contains('interpreter')) {
-        errorMessage += 'The detection model may not be loaded properly. Try restarting the app.';
-      } else if (e.toString().contains('camera') || e.toString().contains('image')) {
-        errorMessage += 'Could not capture image. Please try again.';
-      } else {
-        errorMessage += 'Please try again or check lighting conditions.';
-      }
-
-      await _tts.speak(errorMessage);
+      await _tts.speak('Detection failed. Please try again.');
     }
   }
 
   Future<void> _announceResults(List<DetectionResult> results) async {
-    // Reset detection active - user must initiate next scan
-    _detectionActive = false;
-    
     if (results.isEmpty) {
-      setState(() => _statusMessage = 'No objects detected. Say scan to try again.');
-      await _tts.speak('No objects detected. Say scan to try again.');
+      setState(() => _statusMessage = 'No objects detected');
+      await _tts.speak('No objects detected.');
       return;
     }
 
-    // Filter high confidence results
     final confident = results.where((r) => r.confidence > 0.5).toList();
 
     if (confident.isEmpty) {
-      setState(() => _statusMessage = 'Objects unclear. Say scan to try again.');
-      await _tts.speak('Objects unclear. Say scan to try again.');
+      setState(() => _statusMessage = 'Objects unclear');
+      await _tts.speak('Objects unclear. Try again.');
       return;
     }
 
-    // Build announcement
     final count = confident.length;
     final objectWord = count == 1 ? 'object' : 'objects';
-    setState(() => _statusMessage = '$count $objectWord detected. Say scan for more.');
-
-    // Get unique labels
     final labels = confident.map((r) => r.label).toSet().take(5).toList();
     final labelText = labels.join(', ');
 
-    await _tts.speak('Found $count $objectWord: $labelText. Say scan to detect again.');
-  }
-
-  Future<void> _announceCurrentResults() async {
-    if (_results.isEmpty) {
-      await _tts.speak('No objects detected yet. Say scan to detect objects.');
-      return;
-    }
-
-    final confident = _results.where((r) => r.confidence > 0.5).toList();
-    if (confident.isEmpty) {
-      await _tts.speak('No clear objects detected. Say scan to try again.');
-      return;
-    }
-
-    final labels = confident.map((r) => r.label).toSet().take(5).toList();
-    await _tts.speak('I see: ${labels.join(', ')}');
+    setState(() => _statusMessage = '$count $objectWord: ${labels.take(3).join(", ")}');
+    await _tts.speak('Found $count $objectWord: $labelText.');
   }
 
   @override
@@ -316,20 +243,17 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
           iconSize: 35,
           onPressed: () async {
             await _tts.speak('Going back');
-            Navigator.pop(context);
+            if (mounted) Navigator.pop(context);
           },
         ),
       ),
       body: Stack(
         children: [
-          // Camera preview - full screen, tap to scan
+          // Camera preview
           if (_isInitialized && _camera != null)
             GestureDetector(
               onTap: () async {
-                if (!_isProcessing) {
-                  _detectionActive = true;
-                  await _captureAndDetect();
-                }
+                if (!_isProcessing) await _captureAndDetect();
               },
               child: SizedBox.expand(
                 child: FittedBox(
@@ -340,8 +264,7 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
                     child: Stack(
                       children: [
                         CameraPreview(_camera!),
-                        // Detection boxes overlay
-                        if (_results.isNotEmpty && _imageWidth != null)
+                        if (_results.isNotEmpty && _imageWidth != null && _imageHeight != null)
                           CustomPaint(
                             size: Size.infinite,
                             painter: _DetectionPainter(_results, _imageWidth!, _imageHeight!),
@@ -353,11 +276,9 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
               ),
             )
           else
-            const Center(
-              child: CircularProgressIndicator(color: AppTheme.accentColor),
-            ),
+            const Center(child: CircularProgressIndicator(color: AppTheme.accentColor)),
 
-          // Status bar at bottom
+          // Status bar
           Positioned(
             bottom: 0,
             left: 0,
@@ -369,26 +290,18 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
                   gradient: LinearGradient(
                     begin: Alignment.bottomCenter,
                     end: Alignment.topCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.9),
-                      Colors.transparent,
-                    ],
+                    colors: [Colors.black.withValues(alpha: 0.9), Colors.transparent],
                   ),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Voice commands hint
                     Text(
-                      'Tap screen or say "scan" to detect objects',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: 11,
-                      ),
+                      'Say "scan" or "back". Tap screen to scan.',
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
-                    // Status row
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -396,10 +309,7 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
                           const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(
-                              color: AppTheme.accentColor,
-                              strokeWidth: 2,
-                            ),
+                            child: CircularProgressIndicator(color: AppTheme.accentColor, strokeWidth: 2),
                           )
                         else if (_results.isNotEmpty)
                           const Icon(Icons.check_circle, color: AppTheme.successColor, size: 20)
@@ -409,31 +319,19 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
                         Flexible(
                           child: Text(
                             _statusMessage,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                             textAlign: TextAlign.center,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
                     ),
-                    // Results summary
                     if (_results.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
-                          _results
-                              .where((r) => r.confidence > 0.5)
-                              .map((r) => r.label)
-                              .toSet()
-                              .take(3)
-                              .join(', '),
-                          style: const TextStyle(
-                            color: AppTheme.accentColor,
-                            fontSize: 12,
-                          ),
+                          _results.where((r) => r.confidence > 0.5).map((r) => r.label).toSet().take(3).join(', '),
+                          style: const TextStyle(color: AppTheme.accentColor, fontSize: 12),
                           textAlign: TextAlign.center,
                         ),
                       ),
@@ -464,7 +362,7 @@ class _DetectionPainter extends CustomPainter {
 
     final bgPaint = Paint()
       ..style = PaintingStyle.fill
-      ..color = AppTheme.successColor.withOpacity(0.8);
+      ..color = AppTheme.successColor.withValues(alpha: 0.8);
 
     final scaleX = size.width / imageWidth;
     final scaleY = size.height / imageHeight;
@@ -480,29 +378,18 @@ class _DetectionPainter extends CustomPainter {
         box.bottom * scaleY,
       );
 
-      // Draw bounding box
       canvas.drawRect(rect, boxPaint);
 
-      // Draw label
       final label = '${det.label} ${(det.confidence * 100).toInt()}%';
       final textPainter = TextPainter(
         text: TextSpan(
           text: label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
 
-      final labelRect = Rect.fromLTWH(
-        rect.left,
-        rect.top - 18,
-        textPainter.width + 8,
-        18,
-      );
+      final labelRect = Rect.fromLTWH(rect.left, rect.top - 18, textPainter.width + 8, 18);
       canvas.drawRect(labelRect, bgPaint);
       textPainter.paint(canvas, Offset(rect.left + 4, rect.top - 16));
     }
