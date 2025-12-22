@@ -29,12 +29,14 @@ class SettingsService {
       if (settingsJson != null) {
         final Map<String, dynamic> json = jsonDecode(settingsJson);
         _settings = AppSettings.fromJson(json);
-        
-        // Apply TTS settings
-        await _applyTTSSettings();
       }
+      
+      // Always apply TTS settings (either loaded or defaults)
+      await _applyTTSSettings();
     } catch (e) {
       debugPrint('Error loading settings: $e');
+      // Still apply default settings on error
+      await _applyTTSSettings();
     }
   }
 

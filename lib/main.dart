@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:logger/logger.dart';
@@ -121,24 +121,24 @@ class _LoadingScreenState extends State<LoadingScreen> with SingleTickerProvider
   Future<void> _initializeApp() async {
     try {
       // Request permissions
-      setState(() => _loadingStatus = 'Requesting permissions...');
+      if (mounted) setState(() => _loadingStatus = 'Requesting permissions...');
       await PermissionsHandler.requestAllPermissions();
 
       // Initialize TTS
-      setState(() => _loadingStatus = 'Initializing voice...');
+      if (mounted) setState(() => _loadingStatus = 'Initializing voice...');
       await TTSService().initialize();
 
       // Initialize settings
-      setState(() => _loadingStatus = 'Loading settings...');
+      if (mounted) setState(() => _loadingStatus = 'Loading settings...');
       await SettingsService().initialize();
 
       // Initialize battery service
-      setState(() => _loadingStatus = 'Preparing services...');
+      if (mounted) setState(() => _loadingStatus = 'Preparing services...');
       await BatteryService().initialize();
 
       logger.i('✅ All services initialized successfully');
 
-      setState(() => _loadingStatus = 'Ready!');
+      if (mounted) setState(() => _loadingStatus = 'Ready!');
       await Future<void>.delayed(const Duration(milliseconds: 500));
 
       if (mounted) {

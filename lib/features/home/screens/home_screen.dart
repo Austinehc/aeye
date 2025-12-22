@@ -101,8 +101,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     await _voiceService.stopListening();
     setState(() => _isListening = false);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (mounted && !_tts.isSpeaking && _voiceService.isInitialized) _startListening();
+    
+    // Wait for TTS to complete instead of fixed delay
+    int attempts = 0;
+    while (_tts.isSpeaking && mounted && attempts < 50) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
+    
+    if (mounted && _voiceService.isInitialized) {
+      _startListening();
+    }
   }
 
   Future<void> _startListening() async {

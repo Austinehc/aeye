@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'settings_service.dart';
 
 class BatteryService {
@@ -32,13 +33,21 @@ class BatteryService {
         _checkBatteryOptimization();
       });
 
-      // ✅ FIX: Store timer reference for proper cleanup
+      // Store timer reference for proper cleanup
       _batteryCheckTimer = Timer.periodic(const Duration(minutes: 1), (_) async {
-        _batteryLevel = await _battery.batteryLevel;
-        _checkBatteryOptimization();
+        try {
+          _batteryLevel = await _battery.batteryLevel;
+          _checkBatteryOptimization();
+        } catch (e) {
+          debugPrint('Error checking battery level: $e');
+        }
       });
     } catch (e) {
-      print('Error initializing battery service: $e');
+      debugPrint('Error initializing battery service: $e');
+      // Cancel timer if initialization fails
+      _batteryCheckTimer?.cancel();
+      _batteryStateSubscription?.cancel();
+      rethrow;
     }
   }
 

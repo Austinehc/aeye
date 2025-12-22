@@ -8,10 +8,9 @@ class PermissionsHandler {
   static Future<bool> requestAllPermissions() async {
     final cameraGranted = await requestCameraPermission();
     final microphoneGranted = await requestMicrophonePermission();
-    final locationGranted = await requestLocationPermission();
     final speechGranted = await requestSpeechPermission();
 
-    return cameraGranted && microphoneGranted && locationGranted && speechGranted;
+    return cameraGranted && microphoneGranted && speechGranted;
   }
 
   // Camera Permission
@@ -70,33 +69,7 @@ class PermissionsHandler {
     return false;
   }
 
-  // Location Permission
-  static Future<bool> requestLocationPermission() async {
-    final status = await Permission.location.status;
-    
-    if (status.isGranted) {
-      return true;
-    }
-
-    if (status.isDenied) {
-      final result = await Permission.location.request();
-      if (result.isGranted) {
-        await _tts.speak('Location permission granted');
-        return true;
-      } else {
-        await _tts.speak('Location permission is required for navigation');
-        return false;
-      }
-    }
-
-    if (status.isPermanentlyDenied) {
-      await _tts.speak('Please enable location permission in settings');
-      await openAppSettings();
-      return false;
-    }
-
-    return false;
-  }
+ 
 
   // Speech Recognition Permission
   static Future<bool> requestSpeechPermission() async {
@@ -130,9 +103,8 @@ class PermissionsHandler {
   static Future<bool> checkAllPermissions() async {
     final camera = await Permission.camera.isGranted;
     final microphone = await Permission.microphone.isGranted;
-    final location = await Permission.location.isGranted;
     final speech = await Permission.speech.isGranted;
 
-    return camera && microphone && location && speech;
+    return camera && microphone && speech;
   }
 }

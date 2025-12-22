@@ -7,10 +7,57 @@ class AppConstants {
   static const String objectDetectionModel = 'assets/models/yolov8n.tflite';
   static const String objectDetectionLabels = 'assets/models/labelmap.txt';
   
-  // Confidence Thresholds
-  static const double objectDetectionThreshold = 0.25; // Lower threshold to catch more detections
-  static const double nmsIouThreshold = 0.45; // Standard NMS threshold for good overlap filtering
+  // Confidence Thresholds - LOWERED for initial testing
+  static const double objectDetectionThreshold = 0.25; // Start low to see what model detects
+  static const double nmsIouThreshold = 0.45; // Standard NMS
   static const double ocrConfidenceThreshold = 0.7;
+  
+  // Per-Class Confidence Thresholds - DISABLED for testing (use default)
+  static const Map<String, double> perClassThresholds = {
+    // All set to low values for testing
+    'person': 0.25,
+    'car': 0.25,
+    'chair': 0.25,
+    'couch': 0.25,
+    'bed': 0.25,
+    'dining table': 0.25,
+    'tv': 0.25,
+    'laptop': 0.25,
+    'mouse': 0.25,
+    'keyboard': 0.25,
+    'cell phone': 0.25,
+    'cup': 0.25,
+    'bottle': 0.25,
+    'wine glass': 0.25,
+    'fork': 0.25,
+    'knife': 0.25,
+    'spoon': 0.25,
+    'bowl': 0.25,
+    'book': 0.25,
+    'clock': 0.25,
+    'bicycle': 0.25,
+    'motorcycle': 0.25,
+    'bus': 0.25,
+    'truck': 0.25,
+    'traffic light': 0.25,
+    'stop sign': 0.25,
+    'parking meter': 0.25,
+    'backpack': 0.25,
+    'umbrella': 0.25,
+    'handbag': 0.25,
+    'tie': 0.25,
+    'suitcase': 0.25,
+    'bird': 0.25,
+    'cat': 0.25,
+    'dog': 0.25,
+    'horse': 0.25,
+    'sheep': 0.25,
+    'cow': 0.25,
+    'elephant': 0.25,
+    'bear': 0.25,
+    'zebra': 0.25,
+    'giraffe': 0.25,
+  };
   
   // Voice Commands
   static const List<String> wakeWords = ['hey vision', 'hello vision'];

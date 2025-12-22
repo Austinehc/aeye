@@ -242,7 +242,16 @@ class VoiceService {
 
   /// Dispose
   Future<void> dispose() async {
+    _continuousMode = false;
     _restartTimer?.cancel();
+    _onResultCallback = null;
+    _onPartialResultCallback = null;
+    _onListeningStateChanged = null;
+    
+    if (_isListening) {
+      await _speechToText.cancel();
+      _isListening = false;
+    }
     await stopListening();
   }
 }

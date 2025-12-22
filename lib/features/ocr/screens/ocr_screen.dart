@@ -1,8 +1,9 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:vibration/vibration.dart';
 import 'package:image/image.dart' as img;
-import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/tts_service.dart';
@@ -57,8 +58,15 @@ class _OCRScreenState extends State<OCRScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     await _voiceService.stopListening();
     setState(() => _isListening = false);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (mounted && !_tts.isSpeaking && _voiceService.isInitialized) {
+    
+    // Wait for TTS to complete instead of fixed delay
+    int attempts = 0;
+    while (_tts.isSpeaking && mounted && attempts < 50) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
+    
+    if (mounted && _voiceService.isInitialized) {
       _startListening();
     }
   }
@@ -140,7 +148,13 @@ class _OCRScreenState extends State<OCRScreen> with WidgetsBindingObserver {
         enableAudio: false,
       );
 
-      await _cameraController!.initialize();
+      // Add timeout to prevent hanging
+      await _cameraController!.initialize().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Camera initialization timeout');
+        },
+      );
       await _cameraController!.setFocusMode(FocusMode.auto);
       await _ocrService.initialize();
 
@@ -149,7 +163,12 @@ class _OCRScreenState extends State<OCRScreen> with WidgetsBindingObserver {
         _statusMessage = 'Ready to scan';
       });
       await _tts.speak('Text reader ready. Point at text and say scan.');
+    } on TimeoutException catch (e) {
+      debugPrint('Camera timeout: $e');
+      setState(() => _statusMessage = 'Camera timeout');
+      await _tts.speak('Camera took too long to start. Please try again.');
     } catch (e) {
+      debugPrint('Camera error: $e');
       setState(() => _statusMessage = 'Camera error');
       await _tts.speak('Camera failed');
     }
@@ -180,8 +199,12 @@ class _OCRScreenState extends State<OCRScreen> with WidgetsBindingObserver {
             _srcW = decoded.width;
             _srcH = decoded.height;
           }
+        } else {
+          debugPrint('Failed to decode image for EXIF data');
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Error reading image EXIF: $e');
+      }
 
       final result = await _ocrService.recognizeText(image);
       

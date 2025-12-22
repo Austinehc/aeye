@@ -1,10 +1,13 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:camera/camera.dart';
 import 'package:image/image.dart' as img;
-import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/tts_service.dart';
 import '../services/object_detector_service.dart';
 import '../models/detection_result.dart';
@@ -80,10 +83,17 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen>
 
       _camera = CameraController(
         cameras.first,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,  // High resolution for better accuracy
         enableAudio: false,
       );
-      await _camera!.initialize();
+      
+      // Add timeout to prevent hanging
+      await _camera!.initialize().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Camera initialization timeout');
+        },
+      );
       await _camera!.setFocusMode(FocusMode.auto);
 
       if (mounted) {
@@ -93,9 +103,18 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen>
         });
         await _tts.speak('Object detection ready. Say scan or tap screen.');
       }
+    } on TimeoutException catch (e) {
+      debugPrint('Camera timeout: $e');
+      if (mounted) {
+        setState(() => _statusMessage = 'Camera timeout');
+        await _tts.speak('Camera took too long to start. Please try again.');
+      }
     } catch (e) {
-      setState(() => _statusMessage = 'Camera error');
-      await _tts.speak('Camera failed to initialize');
+      debugPrint('Camera error: $e');
+      if (mounted) {
+        setState(() => _statusMessage = 'Camera error');
+        await _tts.speak('Camera failed to initialize');
+      }
     }
   }
 
@@ -132,8 +151,15 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen>
     if (!mounted) return;
     await _voice.stopListening();
     setState(() => _isListening = false);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (mounted && !_tts.isSpeaking && _voice.isInitialized) {
+    
+    // Wait for TTS to complete instead of fixed delay
+    int attempts = 0;
+    while (_tts.isSpeaking && mounted && attempts < 50) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
+    
+    if (mounted && _voice.isInitialized) {
       _startListening();
     }
   }
@@ -183,10 +209,13 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen>
   Future<void> _captureAndDetect() async {
     if (!_isInitialized || _isProcessing || _camera == null) return;
 
+    // CLEAR previous results immediately
     setState(() {
       _isProcessing = true;
       _statusMessage = 'Scanning...';
-      _results = [];
+      _results = [];  // Clear old results
+      _imageWidth = null;
+      _imageHeight = null;
     });
 
     await _tts.speak('Scanning');
@@ -194,14 +223,30 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen>
     try {
       final xFile = await _camera!.takePicture();
       final bytes = await File(xFile.path).readAsBytes();
-      final decoded = img.decodeImage(bytes);
+      var decoded = img.decodeImage(bytes);
 
       if (decoded == null) throw Exception('Failed to decode');
 
-      _imageWidth = decoded.width;
-      _imageHeight = decoded.height;
+      // Handle image orientation
+      decoded = img.bakeOrientation(decoded);
+      
+      // Crop to square to maintain aspect ratio (prevents distortion)
+      final size = math.min(decoded.width, decoded.height);
+      final cropped = img.copyCrop(
+        decoded,
+        x: (decoded.width - size) ~/ 2,
+        y: (decoded.height - size) ~/ 2,
+        width: size,
+        height: size,
+      );
+      
+      debugPrint('📸 Original: ${decoded.width}x${decoded.height}, Cropped: ${cropped.width}x${cropped.height}');
 
-      final results = await _detector.detectObjects(decoded);
+      _imageWidth = cropped.width;
+      _imageHeight = cropped.height;
+
+      // Get fresh detection results
+      final results = await _detector.detectObjects(cropped);
 
       // Clean up temp file
       try {
@@ -210,35 +255,41 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen>
         // Ignore deletion errors
       }
 
+      if (!mounted) return;
+
       setState(() {
-        _results = results;
+        _results = results;  // Set new results
         _isProcessing = false;
       });
 
       await _announceResults(results);
     } catch (e) {
       debugPrint('Detection error: $e');
+      if (!mounted) return;
       setState(() {
         _isProcessing = false;
         _statusMessage = 'Scan failed';
+        _results = [];  // Clear on error too
       });
       await _tts.speak('Detection failed. Try again.');
     }
   }
 
   Future<void> _announceResults(List<DetectionResult> results) async {
-    final confident = results.where((r) => r.confidence > 0.5).toList();
-
-    if (confident.isEmpty) {
+    if (results.isEmpty) {
       setState(() => _statusMessage = 'No objects found');
       await _tts.speak('No objects detected.');
       return;
     }
 
-    final labels = confident.map((r) => r.label).toSet().take(5).toList();
-    setState(() =>
-        _statusMessage = '${confident.length} objects: ${labels.take(3).join(", ")}');
-    await _tts.speak('Found ${confident.length} objects: ${labels.join(", ")}.');
+    // Only announce the single best detection (fresh result)
+    final best = results.first;
+    final label = best.label;
+    final confidence = (best.confidence * 100).toInt();
+    
+    debugPrint('🔊 Announcing: $label ($confidence%)');
+    setState(() => _statusMessage = '$label ($confidence%)');
+    await _tts.speak('Detected: $label');
   }
 
   @override
@@ -398,6 +449,17 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen>
       );
     }
 
+    // Null safety check for preview size
+    final previewSize = _camera?.value.previewSize;
+    if (previewSize == null) {
+      return Center(
+        child: Text(
+          'Camera preview not available',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      );
+    }
+
     return GestureDetector(
       onTap: () async {
         if (!_isProcessing) await _captureAndDetect();
@@ -416,8 +478,8 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen>
                 child: FittedBox(
                   fit: BoxFit.cover,
                   child: SizedBox(
-                    width: _camera!.value.previewSize!.height,
-                    height: _camera!.value.previewSize!.width,
+                    width: previewSize.height,
+                    height: previewSize.width,
                     child: CameraPreview(_camera!),
                   ),
                 ),

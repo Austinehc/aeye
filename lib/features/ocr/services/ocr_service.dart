@@ -175,9 +175,17 @@ class OCRService {
   }
 
   Future<void> dispose() async {
-    await _textRecognizer.close();
+    try {
+      await _textRecognizer.close();
+      _isInitialized = false;
+    } catch (e) {
+      debugPrint('Error disposing OCR service: $e');
+    }
   }
 }
+
+// Ensure OCR service is disposed when app closes
+// Call this in main app dispose or when OCR screen is permanently closed
 
 class _LineInfo {
   final String text;
