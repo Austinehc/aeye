@@ -27,13 +27,13 @@ class OCRService {
     try {
       final stopwatch = Stopwatch()..start();
       
-      // Quick preprocessing - only essential operations
+     
       final processedPath = await _quickPreprocess(imageFile.path);
-      debugPrint('⏱️ Preprocess: ${stopwatch.elapsedMilliseconds}ms');
+      debugPrint('Preprocess: ${stopwatch.elapsedMilliseconds}ms');
       
       final inputImage = InputImage.fromFilePath(processedPath);
       final recognizedText = await _textRecognizer.processImage(inputImage);
-      debugPrint('⏱️ OCR: ${stopwatch.elapsedMilliseconds}ms');
+      debugPrint(' OCR: ${stopwatch.elapsedMilliseconds}ms');
       
       // Clean up preprocessed file
       if (processedPath != imageFile.path) {
@@ -41,7 +41,7 @@ class OCRService {
       }
 
       final result = _parseRecognizedText(recognizedText);
-      debugPrint('⏱️ Total: ${stopwatch.elapsedMilliseconds}ms, ${result.wordCount} words');
+      debugPrint(' Total: ${stopwatch.elapsedMilliseconds}ms, ${result.wordCount} words');
       
       return result;
     } catch (e) {
